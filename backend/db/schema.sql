@@ -99,6 +99,13 @@ CREATE TABLE IF NOT EXISTS live_sessions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS current_product_id UUID REFERENCES products(id) ON DELETE SET NULL;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS current_segment_id UUID;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS segment_offset_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS previous_action TEXT;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS interrupted_by UUID;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS director_state_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+
 CREATE TABLE IF NOT EXISTS live_session_products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -108,26 +115,56 @@ CREATE TABLE IF NOT EXISTS live_session_products (
     display_order INTEGER NOT NULL DEFAULT 0,
     is_featured BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (live_session_id, product_id, product_variant_id)
+);
+
+ALTER TABLE live_session_products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE TABLE IF NOT EXISTS live_script_segments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    live_session_id UUID NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+    live_session_product_id UUID REFERENCES live_session_products(id) ON DELETE CASCADE,
+    product_id UUID REFERENCES products(id) ON DELETE SET NULL,
+    segment_type TEXT NOT NULL,
+    display_order INTEGER NOT NULL,
+    speech_text TEXT NOT NULL,
+    motion_code TEXT NOT NULL DEFAULT 'talk_calm',
+    overlay_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    audio_url TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (live_session_id, display_order, segment_type, product_id)
 );
 
 CREATE TABLE IF NOT EXISTS live_comments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     live_session_id UUID REFERENCES live_sessions(id) ON DELETE SET NULL,
+    facebook_page_id TEXT,
     external_comment_id TEXT,
+    external_parent_comment_id TEXT,
     external_viewer_id_hash TEXT,
     viewer_name TEXT,
     message TEXT NOT NULL,
     normalized_message TEXT,
     intent TEXT,
     processing_status TEXT NOT NULL DEFAULT 'queued',
+    priority INTEGER NOT NULL DEFAULT 0,
     ai_reply TEXT,
+    raw_payload_reference TEXT,
     received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     processed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (live_session_id, external_comment_id)
 );
+
+ALTER TABLE live_comments ADD COLUMN IF NOT EXISTS facebook_page_id TEXT;
+ALTER TABLE live_comments ADD COLUMN IF NOT EXISTS external_parent_comment_id TEXT;
+ALTER TABLE live_comments ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE live_comments ADD COLUMN IF NOT EXISTS raw_payload_reference TEXT;
 
 CREATE TABLE IF NOT EXISTS ai_response_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -151,9 +188,22 @@ CREATE TABLE IF NOT EXISTS speech_queue_items (
     voice TEXT NOT NULL DEFAULT 'default',
     priority TEXT NOT NULL DEFAULT 'P4',
     status TEXT NOT NULL DEFAULT 'queued',
+    audio_url TEXT,
+    error_message TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
     scheduled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE speech_queue_items ADD COLUMN IF NOT EXISTS audio_url TEXT;
+ALTER TABLE speech_queue_items ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE speech_queue_items ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE speech_queue_items ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE speech_queue_items ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE speech_queue_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 CREATE TABLE IF NOT EXISTS ai_model_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -181,16 +231,16 @@ CREATE TABLE IF NOT EXISTS avatar_models (
     source_image_url TEXT,
     source_image_path TEXT,
     animation_scope TEXT NOT NULL DEFAULT 'upper_body',
-    lip_sync_model TEXT NOT NULL DEFAULT 'echomimic-v2',
-    fallback_lip_sync_model TEXT NOT NULL DEFAULT 'musetalk-v1.5',
-    motion_model TEXT NOT NULL DEFAULT 'echomimic-v2',
-    gesture_model TEXT NOT NULL DEFAULT 'echomimic-v2',
-    body_motion_model TEXT NOT NULL DEFAULT 'echomimic-v2',
+    lip_sync_model TEXT NOT NULL DEFAULT 'musetalk',
+    fallback_lip_sync_model TEXT NOT NULL DEFAULT 'musetalk',
+    motion_model TEXT NOT NULL DEFAULT 'motion-pack',
+    gesture_model TEXT NOT NULL DEFAULT 'motion-pack',
+    body_motion_model TEXT NOT NULL DEFAULT 'motion-pack',
     supports_hand_gesture BOOLEAN NOT NULL DEFAULT true,
     supports_body_motion BOOLEAN NOT NULL DEFAULT true,
-    render_provider TEXT NOT NULL DEFAULT 'modal',
-    gpu_profile TEXT NOT NULL DEFAULT 'l4',
-    quality_preset TEXT NOT NULL DEFAULT 'upper_body_balanced',
+    render_provider TEXT NOT NULL DEFAULT 'local',
+    gpu_profile TEXT NOT NULL DEFAULT 'external-runtime',
+    quality_preset TEXT NOT NULL DEFAULT 'motion_pack_realtime',
     render_endpoint TEXT,
     status TEXT NOT NULL DEFAULT 'active',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -199,21 +249,22 @@ CREATE TABLE IF NOT EXISTS avatar_models (
 );
 
 ALTER TABLE avatar_models ADD COLUMN IF NOT EXISTS animation_scope TEXT NOT NULL DEFAULT 'upper_body';
-ALTER TABLE avatar_models ADD COLUMN IF NOT EXISTS fallback_lip_sync_model TEXT NOT NULL DEFAULT 'musetalk-v1.5';
-ALTER TABLE avatar_models ADD COLUMN IF NOT EXISTS gesture_model TEXT NOT NULL DEFAULT 'echomimic-v2';
-ALTER TABLE avatar_models ADD COLUMN IF NOT EXISTS body_motion_model TEXT NOT NULL DEFAULT 'echomimic-v2';
+ALTER TABLE avatar_models ADD COLUMN IF NOT EXISTS fallback_lip_sync_model TEXT NOT NULL DEFAULT 'musetalk';
+ALTER TABLE avatar_models ADD COLUMN IF NOT EXISTS gesture_model TEXT NOT NULL DEFAULT 'motion-pack';
+ALTER TABLE avatar_models ADD COLUMN IF NOT EXISTS body_motion_model TEXT NOT NULL DEFAULT 'motion-pack';
 ALTER TABLE avatar_models ADD COLUMN IF NOT EXISTS supports_hand_gesture BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE avatar_models ADD COLUMN IF NOT EXISTS supports_body_motion BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE avatar_models ALTER COLUMN animation_scope SET DEFAULT 'upper_body';
-ALTER TABLE avatar_models ALTER COLUMN lip_sync_model SET DEFAULT 'echomimic-v2';
-ALTER TABLE avatar_models ALTER COLUMN fallback_lip_sync_model SET DEFAULT 'musetalk-v1.5';
-ALTER TABLE avatar_models ALTER COLUMN motion_model SET DEFAULT 'echomimic-v2';
-ALTER TABLE avatar_models ALTER COLUMN gesture_model SET DEFAULT 'echomimic-v2';
-ALTER TABLE avatar_models ALTER COLUMN body_motion_model SET DEFAULT 'echomimic-v2';
+ALTER TABLE avatar_models ALTER COLUMN lip_sync_model SET DEFAULT 'musetalk';
+ALTER TABLE avatar_models ALTER COLUMN fallback_lip_sync_model SET DEFAULT 'musetalk';
+ALTER TABLE avatar_models ALTER COLUMN motion_model SET DEFAULT 'motion-pack';
+ALTER TABLE avatar_models ALTER COLUMN gesture_model SET DEFAULT 'motion-pack';
+ALTER TABLE avatar_models ALTER COLUMN body_motion_model SET DEFAULT 'motion-pack';
 ALTER TABLE avatar_models ALTER COLUMN supports_hand_gesture SET DEFAULT true;
 ALTER TABLE avatar_models ALTER COLUMN supports_body_motion SET DEFAULT true;
-ALTER TABLE avatar_models ALTER COLUMN gpu_profile SET DEFAULT 'l4';
-ALTER TABLE avatar_models ALTER COLUMN quality_preset SET DEFAULT 'upper_body_balanced';
+ALTER TABLE avatar_models ALTER COLUMN render_provider SET DEFAULT 'local';
+ALTER TABLE avatar_models ALTER COLUMN gpu_profile SET DEFAULT 'external-runtime';
+ALTER TABLE avatar_models ALTER COLUMN quality_preset SET DEFAULT 'motion_pack_realtime';
 
 CREATE TABLE IF NOT EXISTS render_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -235,18 +286,37 @@ CREATE TABLE IF NOT EXISTS render_profiles (
     UNIQUE (tenant_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS avatar_motion_assets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    avatar_model_id UUID NOT NULL REFERENCES avatar_models(id) ON DELETE CASCADE,
+    motion_code TEXT NOT NULL,
+    video_url TEXT NOT NULL,
+    loopable BOOLEAN NOT NULL DEFAULT false,
+    neutral_start BOOLEAN NOT NULL DEFAULT true,
+    neutral_end BOOLEAN NOT NULL DEFAULT true,
+    duration_ms INTEGER,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (avatar_model_id, motion_code)
+);
+
 CREATE TABLE IF NOT EXISTS media_render_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     live_session_id UUID REFERENCES live_sessions(id) ON DELETE SET NULL,
     live_comment_id UUID REFERENCES live_comments(id) ON DELETE SET NULL,
     render_profile_id UUID REFERENCES render_profiles(id) ON DELETE SET NULL,
+    speech_queue_item_id UUID REFERENCES speech_queue_items(id) ON DELETE SET NULL,
     input_text TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'queued',
     priority TEXT NOT NULL DEFAULT 'P3',
     audio_url TEXT,
+    motion_code TEXT,
+    overlay_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     video_url TEXT,
     error_message TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
     requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
@@ -254,15 +324,43 @@ CREATE TABLE IF NOT EXISTS media_render_jobs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE media_render_jobs ADD COLUMN IF NOT EXISTS speech_queue_item_id UUID REFERENCES speech_queue_items(id) ON DELETE SET NULL;
+ALTER TABLE media_render_jobs ADD COLUMN IF NOT EXISTS motion_code TEXT;
+ALTER TABLE media_render_jobs ADD COLUMN IF NOT EXISTS overlay_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE media_render_jobs ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS playout_queue_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    live_session_id UUID NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+    source_type TEXT NOT NULL,
+    source_id UUID,
+    speech_text TEXT,
+    audio_url TEXT,
+    video_url TEXT,
+    motion_code TEXT,
+    overlay_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    priority INTEGER NOT NULL DEFAULT 40,
+    status TEXT NOT NULL DEFAULT 'queued',
+    resume_cursor UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    error_message TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_products_tenant_source ON products(tenant_id, source);
 CREATE INDEX IF NOT EXISTS idx_products_external_product_id ON products(external_product_id);
 CREATE INDEX IF NOT EXISTS idx_pancake_shops_tenant_shop ON pancake_shops(tenant_id, shop_id);
 CREATE INDEX IF NOT EXISTS idx_variants_external_variation_id ON product_variants(external_variation_id);
 CREATE INDEX IF NOT EXISTS idx_live_sessions_status ON live_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_live_session_products_queue ON live_session_products(live_session_id, display_order);
+CREATE INDEX IF NOT EXISTS idx_live_script_segments_queue ON live_script_segments(live_session_id, status, display_order);
 CREATE INDEX IF NOT EXISTS idx_live_comments_status ON live_comments(processing_status);
 CREATE INDEX IF NOT EXISTS idx_speech_queue_status ON speech_queue_items(status);
 CREATE INDEX IF NOT EXISTS idx_media_render_jobs_status ON media_render_jobs(status, priority);
 CREATE INDEX IF NOT EXISTS idx_render_profiles_tenant_status ON render_profiles(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_playout_queue_status ON playout_queue_items(live_session_id, status, priority DESC);
 
 INSERT INTO tenants (id, name, status)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Demo Store', 'active')
@@ -289,28 +387,30 @@ VALUES (
 ON CONFLICT (tenant_id, name) DO NOTHING;
 
 INSERT INTO avatar_models (
-    id, tenant_id, name, animation_scope, lip_sync_model, fallback_lip_sync_model,
+    id, tenant_id, name, source_image_path, animation_scope, lip_sync_model, fallback_lip_sync_model,
     motion_model, gesture_model, body_motion_model, supports_hand_gesture,
     supports_body_motion, render_provider, gpu_profile, quality_preset
 )
 VALUES (
     '00000000-0000-0000-0000-000000000601',
     '00000000-0000-0000-0000-000000000001',
-    'default-upper-body-streamer',
+    'default-motion-pack-streamer',
+    '/app/model_images/model-green-background.jpg',
     'upper_body',
-    'echomimic-v2',
-    'musetalk-v1.5',
-    'echomimic-v2',
-    'echomimic-v2',
-    'echomimic-v2',
+    'musetalk',
+    'musetalk',
+    'motion-pack',
+    'motion-pack',
+    'motion-pack',
     true,
     true,
-    'modal',
-    'l4',
-    'upper_body_balanced'
+    'local',
+    'external-runtime',
+    'motion_pack_realtime'
 )
 ON CONFLICT (id) DO UPDATE
 SET name = EXCLUDED.name,
+    source_image_path = EXCLUDED.source_image_path,
     animation_scope = EXCLUDED.animation_scope,
     lip_sync_model = EXCLUDED.lip_sync_model,
     fallback_lip_sync_model = EXCLUDED.fallback_lip_sync_model,
@@ -324,6 +424,60 @@ SET name = EXCLUDED.name,
     quality_preset = EXCLUDED.quality_preset,
     updated_at = now();
 
+INSERT INTO avatar_models (
+    id, tenant_id, name, source_image_path, animation_scope, lip_sync_model, fallback_lip_sync_model,
+    motion_model, gesture_model, body_motion_model, supports_hand_gesture,
+    supports_body_motion, render_provider, gpu_profile, quality_preset
+)
+VALUES (
+    '00000000-0000-0000-0000-000000000602',
+    '00000000-0000-0000-0000-000000000001',
+    'half-body-white-background',
+    '/app/model_images/half-model-ai-white-backgorund.jpeg',
+    'upper_body',
+    'musetalk',
+    'musetalk',
+    'motion-pack',
+    'motion-pack',
+    'motion-pack',
+    true,
+    true,
+    'local',
+    'external-runtime',
+    'motion_pack_realtime'
+)
+ON CONFLICT (id) DO UPDATE
+SET name = EXCLUDED.name,
+    source_image_path = EXCLUDED.source_image_path,
+    animation_scope = EXCLUDED.animation_scope,
+    lip_sync_model = EXCLUDED.lip_sync_model,
+    fallback_lip_sync_model = EXCLUDED.fallback_lip_sync_model,
+    motion_model = EXCLUDED.motion_model,
+    gesture_model = EXCLUDED.gesture_model,
+    body_motion_model = EXCLUDED.body_motion_model,
+    supports_hand_gesture = EXCLUDED.supports_hand_gesture,
+    supports_body_motion = EXCLUDED.supports_body_motion,
+    render_provider = EXCLUDED.render_provider,
+    gpu_profile = EXCLUDED.gpu_profile,
+    quality_preset = EXCLUDED.quality_preset,
+    updated_at = now();
+
+INSERT INTO avatar_motion_assets (
+    tenant_id, avatar_model_id, motion_code, video_url, loopable, neutral_start, neutral_end
+)
+VALUES
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'idle_center', '/app/media/motions/idle_center.mp4', true, true, true),
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'talk_calm', '/app/media/motions/talk_calm.mp4', true, true, true),
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'talk_happy', '/app/media/motions/talk_happy.mp4', true, true, true),
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'talk_excited', '/app/media/motions/talk_excited.mp4', true, true, true),
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'point_left', '/app/media/motions/point_left.mp4', false, true, true),
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'point_right', '/app/media/motions/point_right.mp4', false, true, true),
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'present_product', '/app/media/motions/present_product.mp4', false, true, true),
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'wave', '/app/media/motions/wave.mp4', false, true, true),
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'thank_customer', '/app/media/motions/thank_customer.mp4', false, true, true),
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000601', 'order_confirmed', '/app/media/motions/order_confirmed.mp4', false, true, true)
+ON CONFLICT (avatar_model_id, motion_code) DO NOTHING;
+
 INSERT INTO render_profiles (
     id, tenant_id, name, ai_model_profile_id, avatar_model_id,
     target_width, target_height, target_fps, video_bitrate_kbps,
@@ -332,7 +486,7 @@ INSERT INTO render_profiles (
 VALUES (
     '00000000-0000-0000-0000-000000000701',
     '00000000-0000-0000-0000-000000000001',
-    'default-balanced-modal',
+    'default-local-motion-pack',
     '00000000-0000-0000-0000-000000000501',
     '00000000-0000-0000-0000-000000000601',
     1280,
@@ -345,7 +499,8 @@ VALUES (
     'segment_queue'
 )
 ON CONFLICT (id) DO UPDATE
-SET ai_model_profile_id = EXCLUDED.ai_model_profile_id,
+SET name = EXCLUDED.name,
+    ai_model_profile_id = EXCLUDED.ai_model_profile_id,
     avatar_model_id = EXCLUDED.avatar_model_id,
     target_width = EXCLUDED.target_width,
     target_height = EXCLUDED.target_height,

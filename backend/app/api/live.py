@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.models.domain import LiveStatus
+from app.services.live.repository import live_session_repository
 from app.services.meta.client import meta_client
 from app.services.realtime import realtime_hub
 from app.services.store import store
@@ -23,6 +24,7 @@ async def list_live_sessions() -> dict:
 async def create_live_session(payload: CreateLiveRequest) -> dict:
     live = await meta_client.create_live_video(payload.title)
     store.create_live(live)
+    await live_session_repository.upsert_from_domain(live)
     await realtime_hub.broadcast(live.id, {"type": "live_created", "live": live.model_dump()})
     return {"live": live}
 

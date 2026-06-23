@@ -80,7 +80,7 @@ Quality is controlled by database profiles, not hard-coded constants:
 
 ```text
 ai_model_profiles     LLM provider/model, TTS provider/model, voice, prompt
-avatar_models         source image, animation scope, lip/gesture/body models, GPU profile
+avatar_models         source image, animation scope, motion pack, MuseTalk runtime metadata
 render_profiles       resolution, FPS, bitrate, segment length, strategy
 media_render_jobs     text/audio/video render job lifecycle
 ```
@@ -91,24 +91,27 @@ Default profile:
 LLM: gemini / gemini-2.5-flash-lite
 TTS: elevenlabs / eleven_multilingual_v2
 Animation scope: upper_body
-Lip-sync: echomimic-v2
-Gesture/body motion: echomimic-v2
-Fallback lip-sync only: musetalk-v1.5
-GPU provider: modal
-GPU class: l4
-Video: 1280x720 @ 25fps, upper_body_balanced
+Lip-sync runtime: musetalk
+Gesture/body motion: motion-pack clips
+Offline motion generation: EchoMimic V2 when motion clips are missing
+Runtime provider: local avatar service URL
+Video: 1280x720 @ 25fps, motion_pack_realtime
 ```
 
-This default is for a half-body livestream host that can move hands and upper
-body while speaking. MuseTalk is kept only as a cheap lip-sync fallback; it is
-not the core model for streamer-like motion.
+This default is for a half-body livestream host that moves hands/body through
+prebuilt motion videos such as `point_right.mp4` or `present_product.mp4`.
+MuseTalk only lip-syncs the selected motion video to TTS audio; it is not used
+with a static image as the main avatar engine.
 
 Set render endpoint in `.env` when Modal or another GPU service is ready:
 
 ```env
-MEDIA_RENDER_PROVIDER=modal
+MEDIA_RENDER_PROVIDER=local
 MEDIA_RENDER_BASE_URL=
 MEDIA_RENDER_API_TOKEN=
+AVATAR_RUNTIME_PROVIDER=musetalk
+AVATAR_RUNTIME_BASE_URL=
+AVATAR_RUNTIME_API_TOKEN=
 DEFAULT_RENDER_PROFILE_ID=00000000-0000-0000-0000-000000000701
 ```
 
@@ -119,6 +122,26 @@ curl -X POST http://localhost:8100/api/media/render-jobs \
   -H 'content-type: application/json' \
   -d '{"input_text":"Dạ mẫu này đang có màu đỏ size M, chất cotton mềm mát ạ."}'
 ```
+
+## Live Product Queue
+
+Add a synced product to a live session:
+
+```bash
+curl -X POST http://localhost:8100/api/live-sessions/<live_id>/products \
+  -H 'content-type: application/json' \
+  -d '{"product_id":"<product_uuid>","product_variant_id":null,"display_order":1,"is_featured":true}'
+```
+
+Prepare product scripts:
+
+```bash
+curl -X POST http://localhost:8100/api/live-sessions/<live_id>/prepare
+```
+
+`prepare` reads product, price, and inventory from Postgres and creates
+`live_script_segments`; the LLM must not be the source of truth for price or
+stock.
 
 ## Stream Test Without Facebook Graph API
 

@@ -1,7 +1,20 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import comments, conversations, facebook, health, inventory, live, live_sessions, media, ops, orders, products
+from app.api import (
+    comments,
+    conversations,
+    facebook,
+    health,
+    inventory,
+    live,
+    live_session_products,
+    live_sessions,
+    media,
+    ops,
+    orders,
+    products,
+)
 from app.services.realtime import realtime_hub
 
 app = FastAPI(title="DTP AI Stream API", version="0.1.0")
@@ -17,6 +30,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(live.router)
 app.include_router(live_sessions.router)
+app.include_router(live_session_products.router)
 app.include_router(facebook.router)
 app.include_router(comments.router)
 app.include_router(products.router)

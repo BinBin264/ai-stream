@@ -376,14 +376,20 @@ class ParsedCommerceIntent(BaseModel):
 class SpeechQueueItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     tenant_id: str = "demo-tenant"
-    live_session_id: str
+    live_session_id: str | None = None
     source_comment_id: str | None = None
     text: str
     voice: str = "default"
     priority: str = "P4"
     status: str = "queued"
+    audio_url: str | None = None
+    error_message: str | None = None
+    attempt_count: int = 0
     scheduled_at: datetime = Field(default_factory=utcnow)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class CommercePipelineResult(BaseModel):

@@ -11,6 +11,7 @@ router = APIRouter(prefix="/api/ops", tags=["ops"])
 @router.get("/live-dashboard")
 async def live_dashboard() -> dict:
     render_jobs = await media_render_orchestrator.list_render_jobs(DEMO_TENANT_ID, limit=500)
+    speech_items = await media_publisher.list_items(DEMO_TENANT_ID, limit=500)
     return {
         "live_sessions": len(store.live_sessions),
         "comments": len(store.comments),
@@ -24,7 +25,7 @@ async def live_dashboard() -> dict:
             [item for item in store.conversations.values() if item.status == ConversationStatus.HUMAN_TAKEOVER]
         ),
         "failed_comments": len([item for item in store.comments.values() if item.status == CommentStatus.FAILED]),
-        "speech_queue": len(media_publisher.items),
+        "speech_queue": len(speech_items),
         "media_render_jobs": len(render_jobs),
         "media_render_failed": len([item for item in render_jobs if item.get("status") == "failed"]),
     }

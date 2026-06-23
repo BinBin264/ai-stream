@@ -63,6 +63,74 @@ services:
     depends_on:
       - backend
 
+  comment-worker:
+    build:
+      context: ./backend
+    container_name: dtp-stream-comment-worker
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - media_data:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -m app.workers.comment_worker
+    restart: unless-stopped
+
+  speech-worker:
+    build:
+      context: ./backend
+    container_name: dtp-stream-speech-worker
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - media_data:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -m app.workers.speech_worker
+    restart: unless-stopped
+
+  avatar-worker:
+    build:
+      context: ./backend
+    container_name: dtp-stream-avatar-worker
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - media_data:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -m app.workers.avatar_worker
+    restart: unless-stopped
+
+  playout-worker:
+    build:
+      context: ./backend
+    container_name: dtp-stream-playout-worker
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - media_data:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -m app.workers.playout_worker
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

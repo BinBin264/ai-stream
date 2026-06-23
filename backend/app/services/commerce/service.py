@@ -171,10 +171,12 @@ class CommercePipelineService:
         if comment.moderation_status != ModerationStatus.ALLOW:
             return None
         return await media_publisher.queue_speech(
+            tenant_id=comment.tenant_id,
             live_session_id=comment.live_id,
             source_comment_id=comment.id,
             text=reply,
             priority=priority,
+            voice="default",
         )
 
     def _viewer_hash(self, raw: str) -> str:

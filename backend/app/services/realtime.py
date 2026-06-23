@@ -1,7 +1,10 @@
 import json
+import logging
 from collections import defaultdict
 
 from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
 
 
 class RealtimeHub:
@@ -22,6 +25,7 @@ class RealtimeHub:
             try:
                 await websocket.send_text(message)
             except Exception:
+                logger.warning("Dropping dead websocket connection", exc_info=True, extra={"live_id": live_id})
                 dead.append(websocket)
         for websocket in dead:
             self.disconnect(live_id, websocket)

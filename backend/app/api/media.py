@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.services.media.render_orchestrator import DEMO_TENANT_ID, media_render_orchestrator
 
@@ -12,6 +12,10 @@ class CreateRenderJobRequest(BaseModel):
     render_profile_id: str | None = None
     live_session_id: str | None = None
     live_comment_id: str | None = None
+    speech_queue_item_id: str | None = None
+    audio_url: str | None = None
+    motion_code: str = "talk_calm"
+    overlay_json: dict = Field(default_factory=dict)
     priority: str = "P3"
 
 
@@ -55,6 +59,10 @@ async def create_render_job(payload: CreateRenderJobRequest) -> dict:
             render_profile_id=payload.render_profile_id,
             live_session_id=payload.live_session_id,
             live_comment_id=payload.live_comment_id,
+            speech_queue_item_id=payload.speech_queue_item_id,
+            audio_url=payload.audio_url,
+            motion_code=payload.motion_code,
+            overlay_json=payload.overlay_json,
             priority=payload.priority,
         )
     except ValueError as exc:

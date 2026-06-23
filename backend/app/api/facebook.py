@@ -5,9 +5,11 @@ from fastapi.responses import PlainTextResponse
 
 from app.core.config import settings
 from app.models.domain import WebhookEvent
+from app.services.comments.repository import live_comment_repository
 from app.services.meta.client import meta_client
 from app.services.meta.parser import parse_comment_events
 from app.services.meta.webhook_security import webhook_security
+from app.services.media.publisher import DEMO_TENANT_ID
 from app.services.queue.comment_queue import comment_queue
 from app.services.realtime import realtime_hub
 from app.services.store import store
@@ -56,23 +58,14 @@ async def receive_webhook(request: Request) -> dict:
     default_live_id = payload.get("live_id") or "unknown-live"
     comments = parse_comment_events(payload, default_live_id=default_live_id)
 
-    for comment in comments:
-        existing = store.find_comment_by_external_id(comment.facebook_page_id, comment.external_comment_id)
-        if existing:
-            continue
-        comment.raw_payload_reference = event.id
-        store.save_comment(comment)
-        await comment_queue.put(comment)
-        await realtime_hub.broadcast(
-            comment.live_id,
-            {"type": "comment_created", "comment": comment.model_dump()},
-        )
+    persisted, unresolved = await _persist_and_publish_comments(comments, raw_payload_reference=event.id)
 
     return {
         "received": True,
         "duplicate": False,
         "event_id": event.id,
-        "comments": len(comments),
+        "comments": persisted,
+        "unresolved_comments": unresolved,
         "verify_token_set": bool(settings.META_VERIFY_TOKEN),
     }
 
@@ -98,8 +91,45 @@ async def create_dev_comment(payload: dict) -> dict:
         ]
     }
     comments = parse_comment_events(event, default_live_id=live_id)
+    persisted, unresolved = await _persist_and_publish_comments(comments, raw_payload_reference="dev-comment")
+    return {"comments": persisted, "unresolved_comments": unresolved}
+
+
+async def _persist_and_publish_comments(comments: list, raw_payload_reference: str) -> tuple[int, int]:
+    persisted = 0
+    unresolved = 0
     for comment in comments:
-        store.save_comment(comment)
-        await comment_queue.put(comment)
-        await realtime_hub.broadcast(live_id, {"type": "comment_created", "comment": comment.model_dump()})
-    return {"comments": comments}
+        live_session_id = await live_comment_repository.resolve_live_session_id(
+            tenant_id=DEMO_TENANT_ID,
+            external_live_id=comment.live_session_id or comment.live_id,
+            page_id=comment.facebook_page_id,
+        )
+        if not live_session_id:
+            unresolved += 1
+            continue
+
+        existing = await live_comment_repository.find_by_external_id(
+            tenant_id=DEMO_TENANT_ID,
+            live_session_id=live_session_id,
+            external_comment_id=comment.external_comment_id,
+        )
+        if existing:
+            continue
+
+        comment.tenant_id = DEMO_TENANT_ID
+        comment.live_id = live_session_id
+        comment.live_session_id = live_session_id
+        comment.raw_payload_reference = raw_payload_reference
+        saved = await live_comment_repository.save(
+            comment,
+            tenant_id=DEMO_TENANT_ID,
+            live_session_id=live_session_id,
+        )
+        store.save_comment(saved)
+        await comment_queue.put(saved)
+        await realtime_hub.broadcast(
+            live_session_id,
+            {"type": "comment_created", "comment": saved.model_dump()},
+        )
+        persisted += 1
+    return persisted, unresolved

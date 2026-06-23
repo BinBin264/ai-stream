@@ -43,22 +43,36 @@ class Settings(BaseSettings):
     LOW_STOCK_THRESHOLD: int = 3
 
     AI_ENABLED: bool = True
-    AI_AUTO_REPLY_ENABLED: bool = True
-    AI_SPEECH_ENABLED: bool = False
+    AI_AUTO_REPLY_ENABLED: bool = False
+    AI_SPEECH_ENABLED: bool = True
     AI_HUMAN_HANDOVER_CONFIDENCE_THRESHOLD: float = 0.75
     AI_MAX_REPLY_LENGTH: int = 300
     AI_AVATAR_BASE_URL: str = "http://host.docker.internal:8000"
     AI_AVATAR_API_TOKEN: str = ""
 
-    MEDIA_ENABLED: bool = False
+    MEDIA_ENABLED: bool = True
     MEDIA_PROVIDER: str = "ffmpeg"
-    MEDIA_RENDER_PROVIDER: str = "modal"
+    MEDIA_RENDER_PROVIDER: str = "local"
     MEDIA_RENDER_BASE_URL: str = ""
     MEDIA_RENDER_API_TOKEN: str = ""
     DEFAULT_RENDER_PROFILE_ID: str = "00000000-0000-0000-0000-000000000701"
-    LIVEKIT_URL: str = ""
-    LIVEKIT_API_KEY: str = ""
-    LIVEKIT_API_SECRET: str = ""
+    TTS_PROVIDER: str = "elevenlabs"
+    ELEVENLABS_API_KEY: str = ""
+    ELEVENLABS_VOICE_ID: str = ""
+    ELEVENLABS_MODEL_ID: str = "eleven_multilingual_v2"
+    ELEVENLABS_OUTPUT_FORMAT: str = "mp3_44100_128"
+    AVATAR_RUNTIME_PROVIDER: str = "musetalk"
+    AVATAR_RUNTIME_BASE_URL: str = ""
+    AVATAR_RUNTIME_API_TOKEN: str = ""
+    STREAM_COMMENTS: str = "stream:comments"
+    STREAM_SPEECH: str = "stream:speech"
+    STREAM_AVATAR: str = "stream:avatar"
+    STREAM_PLAYOUT: str = "stream:playout"
+    REDIS_GROUP_COMMENTS: str = "comment-workers"
+    REDIS_GROUP_SPEECH: str = "speech-workers"
+    REDIS_GROUP_AVATAR: str = "avatar-workers"
+    REDIS_GROUP_PLAYOUT: str = "playout-workers"
+    MEDIA_OUTPUT_DIR: str = "/app/media"
     RTMP_OUTPUT_ENABLED: bool = False
     RTMPS_URL: str = ""
     RTMPS_STREAM_KEY: str = ""
@@ -66,7 +80,6 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "info"
     OTEL_ENABLED: bool = False
-    SENTRY_DSN: str = ""
 
     def validate_runtime(self) -> None:
         if self.APP_ENV != "production":
