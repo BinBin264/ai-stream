@@ -1,0 +1,45 @@
+{
+  "avatar_id": "model_01",
+  "display_name": "Model 01",
+  "status": "ready",
+  "source_image": "source_original.png",
+  "face_crop": "source_face_crop.png",
+  "idle_video": "idle_base.mp4",
+  "crop": {
+    "x": 0,
+    "y": 140,
+    "size": 1122
+  },
+  "motion_profile": {
+    "mode": "minimal",
+    "head_motion": "low",
+    "eye_blink": "natural",
+    "shoulder_motion": "disabled",
+    "hand_motion": "disabled",
+    "camera_motion": "disabled"
+  },
+  "quality": {
+    "source_width": 1122,
+    "source_height": 1402,
+    "face_crop_width": 1122,
+    "face_crop_height": 1122,
+    "is_hd_ready": true,
+    "warnings": []
+  },
+  "asset_status": {
+    "source_ready": true,
+    "face_crop_ready": true,
+    "idle_video_ready": true,
+    "preview_ready": true
+  },
+  "manual_review": {
+    "face_frontal": true,
+    "eyes_visible": true,
+    "mouth_visible": true,
+    "lighting_even": true,
+    "hands_not_covering_face": true,
+    "approved_by_human": true
+  },
+  "created_at": "2026-06-23T02:24:12.890069Z",
+  "updated_at": "2026-06-23T02:25:44.453251Z"
+}

@@ -73,10 +73,45 @@ class Settings(BaseSettings):
     REDIS_GROUP_AVATAR: str = "avatar-workers"
     REDIS_GROUP_PLAYOUT: str = "playout-workers"
     MEDIA_OUTPUT_DIR: str = "/app/media"
+
+    # Automated avatar render pipeline
+    AVATAR_RENDER_STREAM: str = "avatar.render"
+    AVATAR_FAILED_STREAM: str = "avatar.failed"
+    PLAYOUT_QUEUE_STREAM: str = "playout.queue"
+    AVATAR_RENDER_CONSUMER_GROUP: str = "avatar-render-workers"
+    AVATAR_RENDER_PROVIDER: str = "fake"   # fake | local
+    AVATAR_RUNTIME_TIMEOUT_SECONDS: int = 1800
+    AVATAR_RUNTIME_POLL_INTERVAL_SECONDS: int = 3
+    AVATAR_RENDER_MAX_RETRIES: int = 1
+    AVATAR_MAX_AUDIO_SECONDS: int = 30
+    AVATAR_MAX_TEXT_LENGTH: int = 350
+    AVATAR_MEDIA_ROOT: str = "media"
+
+    # Local playout program assembly
+    FFMPEG_BIN: str = "ffmpeg"
+    FFPROBE_BIN: str = "ffprobe"
+    PLAYOUT_MEDIA_ROOT: str = "media/playout"
+    PLAYOUT_MANIFEST_DIR: str = "media/playout/manifests"
+    PLAYOUT_NORMALIZED_DIR: str = "media/playout/normalized"
+    PLAYOUT_PROGRAM_DIR: str = "media/playout/programs"
+    PLAYOUT_TARGET_WIDTH: int = 1080
+    PLAYOUT_TARGET_HEIGHT: int = 1920
+    PLAYOUT_TARGET_FPS: int = 25
+    PLAYOUT_TARGET_VIDEO_CODEC: str = "libx264"
+    PLAYOUT_TARGET_AUDIO_CODEC: str = "aac"
+    PLAYOUT_TARGET_PIXEL_FORMAT: str = "yuv420p"
+    PLAYOUT_TARGET_AUDIO_RATE: int = 48000
+    PLAYOUT_TARGET_AUDIO_CHANNELS: int = 2
+    PLAYOUT_DEFAULT_IDLE_LEAD_SECONDS: int = 8
+    PLAYOUT_DEFAULT_IDLE_BETWEEN_SECONDS: int = 10
+    PLAYOUT_DEFAULT_IDLE_TAIL_SECONDS: int = 10
+    PLAYOUT_DEFAULT_TRANSITION: str = "cut"
+    PLAYOUT_MAX_TARGET_DURATION_SECONDS: int = 180
+
     RTMP_OUTPUT_ENABLED: bool = False
     RTMPS_URL: str = ""
     RTMPS_STREAM_KEY: str = ""
-    IDLE_VIDEO_PATH: str = "/app/media/idle.mp4"
+    IDLE_VIDEO_PATH: str = "/app/avatars/model_01/idle_base.mp4"
 
     LOG_LEVEL: str = "info"
     OTEL_ENABLED: bool = False

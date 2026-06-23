@@ -511,3 +511,36 @@ SET name = EXCLUDED.name,
     max_render_seconds = EXCLUDED.max_render_seconds,
     stream_strategy = EXCLUDED.stream_strategy,
     updated_at = now();
+
+-- Phase 3: Automated Avatar Render Pipeline
+CREATE TABLE IF NOT EXISTS avatar_render_jobs (
+    id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id                UUID NOT NULL REFERENCES tenants(id),
+    avatar_id                TEXT NOT NULL,
+    input_text               TEXT NOT NULL,
+    voice_id                 TEXT,
+    language                 TEXT NOT NULL DEFAULT 'vi',
+    status                   TEXT NOT NULL DEFAULT 'queued',
+    audio_path               TEXT,
+    audio_normalized_path    TEXT,
+    video_path               TEXT,
+    metadata_path            TEXT,
+    quality_report_path      TEXT,
+    audio_duration_seconds   DOUBLE PRECISION,
+    render_duration_seconds  DOUBLE PRECISION,
+    error_code               TEXT,
+    error_message            TEXT,
+    retry_count              INTEGER NOT NULL DEFAULT 0,
+    live_session_id          UUID REFERENCES live_sessions(id),
+    source_comment_id        UUID,
+    runtime_provider         TEXT,
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at               TIMESTAMPTZ,
+    completed_at             TIMESTAMPTZ,
+    failed_at                TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_avatar_render_jobs_status ON avatar_render_jobs(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_avatar_render_jobs_tenant ON avatar_render_jobs(tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_avatar_render_jobs_live_session ON avatar_render_jobs(live_session_id) WHERE live_session_id IS NOT NULL;

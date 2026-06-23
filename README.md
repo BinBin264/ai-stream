@@ -1,151 +1,87 @@
 # DTP AI Stream
 
-AI livestream backend/frontend scaffold.
+AI livestream backend/frontend for Facebook Live commerce.
 
-Current scope:
-
-- sync product catalog from Pancake POS into Postgres
-- create/manage a livestream session
-- stream an idle video to RTMPS with FFmpeg
-- receive Facebook webhook comments
-- configure AI, TTS, avatar, GPU, and render quality profiles
-- queue media render jobs for avatar speech and upper-body gesture inference
-
-This source does not require a GPU for the basic stream test. GPU is only needed
-for downstream avatar rendering, for example through Modal or a local GPU
-service.
-
-## Local Database
-
-```bash
-docker compose up -d postgres
-docker exec -i dtp-stream-postgres psql -U stream_user -d stream_db -f - < backend/db/schema.sql
-```
-
-Connect from TablePlus/DBeaver:
+The phase test folders have been removed from the source tree. The repository is now oriented around the runtime app:
 
 ```text
-Host: 127.0.0.1
-Port: 5434
-Database: stream_db
-User: stream_user
-Password: stream_password
+backend/
+├── app/          FastAPI app, services, workers
+├── avatars/      production avatar assets, e.g. model_01
+├── db/           Postgres schema
+├── Dockerfile
+└── requirements.txt
 ```
 
-## Run App
+Generated media should not be committed. In Docker it is written to the `media_data` volume mounted at `/app/media`.
+
+## Run
 
 ```bash
-docker compose up -d redis backend frontend
+cp .env.example .env
+docker compose up -d postgres redis backend frontend
 ```
 
 Open:
 
 ```text
-http://localhost:3100
+Frontend: http://localhost:3100
+Backend:  http://localhost:8100
+Health:   http://localhost:8100/health
 ```
 
-Backend health:
+Apply the database schema:
 
 ```bash
-curl http://localhost:8100/health
+docker exec -i dtp-stream-postgres psql -U stream_user -d stream_db -f - < backend/db/schema.sql
 ```
 
-## Product Sync From Pancake
+## Live Runtime Shape
 
-1. Save Pancake shop credentials:
-
-```bash
-curl -X POST http://localhost:8100/api/products/pancake/shops \
-  -H 'content-type: application/json' \
-  -d '{"shop_id":"<pancake_shop_id>","api_key":"<pancake_api_key>","shop_name":"Demo Shop"}'
-```
-
-2. Copy the returned `shop.id`, then sync products:
-
-```bash
-curl -X POST http://localhost:8100/api/products/pancake/sync \
-  -H 'content-type: application/json' \
-  -d '{"pancake_shop_id":"<uuid-from-pancake_shops>"}'
-```
-
-3. Read catalog:
-
-```bash
-curl http://localhost:8100/api/products
-```
-
-## AI Avatar Quality Profiles
-
-Quality is controlled by database profiles, not hard-coded constants:
+Current live flow:
 
 ```text
-ai_model_profiles     LLM provider/model, TTS provider/model, voice, prompt
-avatar_models         source image, animation scope, motion pack, MuseTalk runtime metadata
-render_profiles       resolution, FPS, bitrate, segment length, strategy
-media_render_jobs     text/audio/video render job lifecycle
+Create live
+→ start broadcaster
+→ FFmpeg loops IDLE_VIDEO_PATH to RTMPS
+→ Facebook webhook receives comments
+→ comments enter Redis queue
+→ workers process AI/speech/avatar jobs
+→ completed avatar video is published to playout.queue
 ```
 
-Default profile:
-
-```text
-LLM: gemini / gemini-2.5-flash-lite
-TTS: elevenlabs / eleven_multilingual_v2
-Animation scope: upper_body
-Lip-sync runtime: musetalk
-Gesture/body motion: motion-pack clips
-Offline motion generation: EchoMimic V2 when motion clips are missing
-Runtime provider: local avatar service URL
-Video: 1280x720 @ 25fps, motion_pack_realtime
-```
-
-This default is for a half-body livestream host that moves hands/body through
-prebuilt motion videos such as `point_right.mp4` or `present_product.mp4`.
-MuseTalk only lip-syncs the selected motion video to TTS audio; it is not used
-with a static image as the main avatar engine.
-
-Set render endpoint in `.env` when Modal or another GPU service is ready:
+Default idle video:
 
 ```env
-MEDIA_RENDER_PROVIDER=local
-MEDIA_RENDER_BASE_URL=
-MEDIA_RENDER_API_TOKEN=
-AVATAR_RUNTIME_PROVIDER=musetalk
-AVATAR_RUNTIME_BASE_URL=
-AVATAR_RUNTIME_API_TOKEN=
-DEFAULT_RENDER_PROFILE_ID=00000000-0000-0000-0000-000000000701
+IDLE_VIDEO_PATH=/app/avatars/model_01/idle_base.mp4
 ```
 
-Create a render job:
+Required avatar asset:
+
+```text
+backend/avatars/model_01/idle_base.mp4
+```
+
+## Workers
+
+Run the full stack:
 
 ```bash
-curl -X POST http://localhost:8100/api/media/render-jobs \
-  -H 'content-type: application/json' \
-  -d '{"input_text":"Dạ mẫu này đang có màu đỏ size M, chất cotton mềm mát ạ."}'
+docker compose up -d
 ```
 
-## Live Product Queue
+Relevant services:
 
-Add a synced product to a live session:
-
-```bash
-curl -X POST http://localhost:8100/api/live-sessions/<live_id>/products \
-  -H 'content-type: application/json' \
-  -d '{"product_id":"<product_uuid>","product_variant_id":null,"display_order":1,"is_featured":true}'
+```text
+comment-worker   Facebook/comment queue processing
+speech-worker    TTS queue processing
+avatar-worker    avatar render queue processing
+playout-worker   playout queue consumer
 ```
 
-Prepare product scripts:
+## Facebook Live
 
-```bash
-curl -X POST http://localhost:8100/api/live-sessions/<live_id>/prepare
-```
-
-`prepare` reads product, price, and inventory from Postgres and creates
-`live_script_segments`; the LLM must not be the source of truth for price or
-stock.
-
-## Stream Test Without Facebook Graph API
-
-Set manual RTMPS values in `.env`:
+For manual RTMPS:
 
 ```env
 FACEBOOK_ENABLED=false
@@ -153,30 +89,47 @@ RTMPS_URL=rtmps://...
 RTMPS_STREAM_KEY=...
 ```
 
-Then create a live in the dashboard and click `Preview`. If
-`IDLE_VIDEO_PATH=/app/media/idle.mp4` does not exist, the backend generates a
-simple 720p idle clip with FFmpeg and loops it forever.
-
-## Stream Test With Facebook Graph API
-
-Set:
+For Facebook Graph API:
 
 ```env
 FACEBOOK_ENABLED=true
 META_GRAPH_API_VERSION=v23.0
 META_PAGE_ID=
 META_PAGE_ACCESS_TOKEN=
+META_VERIFY_TOKEN=
+META_WEBHOOK_SECRET=
 ```
 
-When a live session is created, `services/meta/client.py` calls Graph API
-`/{page_id}/live_videos` and uses the returned stream URL for FFmpeg. The Page
-token must have permissions for Page live video creation.
+Start a live session from the frontend or API, then call start/go-live through the app.
 
-## Important Limits
+## Product Sync
 
-- OAuth page connection is not implemented yet.
-- Facebook comment reply API is not implemented yet.
-- Page token encryption is a placeholder.
-- Actual GPU inference needs `MEDIA_RENDER_BASE_URL`; without it, media jobs stay
-  queued in Postgres.
-- Order/cart/payment tables are intentionally not in the current DB scope.
+Save Pancake credentials:
+
+```bash
+curl -X POST http://localhost:8100/api/products/pancake/shops \
+  -H 'content-type: application/json' \
+  -d '{"shop_id":"<pancake_shop_id>","api_key":"<pancake_api_key>","shop_name":"Demo Shop"}'
+```
+
+Sync products:
+
+```bash
+curl -X POST http://localhost:8100/api/products/pancake/sync \
+  -H 'content-type: application/json' \
+  -d '{"pancake_shop_id":"<uuid-from-pancake_shops>"}'
+```
+
+## Next Runtime Work
+
+The remaining integration work is live playout runtime:
+
+```text
+idle loop running
+→ receive completed avatar talking segment
+→ queue by priority
+→ insert talking segment into live output
+→ return to idle loop
+```
+
+Current `playout-worker` still needs to be upgraded from queue acknowledgement to real playout control. The old phase validation folders are intentionally removed.

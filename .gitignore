@@ -7,4 +7,29 @@ __pycache__/
 node_modules/
 .next/
 dist/
+
+# Local tool caches
+.modal/
+
+# Runtime/generated media should live in Docker volumes or local ignored output.
+backend/media/
 media/
+
+# Binary media and model artifacts
+*.mp4
+*.wav
+*.mp3
+*.mov
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+
+# Local model caches
+backend/models/
+backend/.musetalk/
+
+# Avatar preprocessing cache
+backend/avatars/*/cache/*
+!backend/avatars/*/cache/.gitkeep

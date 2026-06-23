@@ -2,6 +2,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    avatar_renders,
+    avatars,
     comments,
     conversations,
     facebook,
@@ -13,6 +15,7 @@ from app.api import (
     media,
     ops,
     orders,
+    playout_programs,
     products,
 )
 from app.services.realtime import realtime_hub
@@ -28,6 +31,8 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(avatars.router)
+app.include_router(avatar_renders.router)
 app.include_router(live.router)
 app.include_router(live_sessions.router)
 app.include_router(live_session_products.router)
@@ -39,6 +44,7 @@ app.include_router(inventory.router)
 app.include_router(orders.router)
 app.include_router(conversations.router)
 app.include_router(ops.router)
+app.include_router(playout_programs.router)
 
 
 @app.websocket("/ws/live/{live_id}")
