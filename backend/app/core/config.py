@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     AVATAR_RENDER_STREAM: str = "avatar.render"
     AVATAR_FAILED_STREAM: str = "avatar.failed"
     PLAYOUT_QUEUE_STREAM: str = "playout.queue"
+    PLAYOUT_SESSION_CONTROL_STREAM: str = "playout.session.control"
+    PLAYOUT_SEGMENT_READY_STREAM: str = "playout.segment.ready"
+    PLAYOUT_SEGMENT_FAILED_STREAM: str = "playout.segment.failed"
+    PLAYOUT_RUNTIME_EVENTS_STREAM: str = "playout.runtime.events"
+    PLAYOUT_RUNTIME_CONSUMER_GROUP: str = "dynamic-playout-workers"
     AVATAR_RENDER_CONSUMER_GROUP: str = "avatar-render-workers"
     AVATAR_RENDER_PROVIDER: str = "fake"   # fake | local
     AVATAR_RUNTIME_TIMEOUT_SECONDS: int = 1800
@@ -107,6 +112,21 @@ class Settings(BaseSettings):
     PLAYOUT_DEFAULT_IDLE_TAIL_SECONDS: int = 10
     PLAYOUT_DEFAULT_TRANSITION: str = "cut"
     PLAYOUT_MAX_TARGET_DURATION_SECONDS: int = 180
+    PLAYOUT_RUNTIME_ENABLED: bool = True
+    PLAYOUT_RUNTIME_OUTPUT_MODE: str = "local_preview"
+    PLAYOUT_VIDEO_CODEC: str = "libx264"
+    PLAYOUT_AUDIO_CODEC: str = "aac"
+    PLAYOUT_PIXEL_FORMAT: str = "yuv420p"
+    PLAYOUT_AUDIO_SAMPLE_RATE: int = 48000
+    PLAYOUT_AUDIO_CHANNELS: int = 2
+    PLAYOUT_HLS_TIME_SECONDS: int = 2
+    PLAYOUT_HLS_LIST_SIZE: int = 10
+    PLAYOUT_HLS_DIRECTORY: str = "playout/live"
+    PLAYOUT_IDLE_TRANSITION_POLICY: str = "next_loop_boundary"
+    PLAYOUT_MAX_QUEUE_SIZE: int = 50
+    PLAYOUT_MAX_RUNTIME_RESTARTS: int = 2
+    PLAYOUT_RUNTIME_HEARTBEAT_SECONDS: int = 5
+    PLAYOUT_SEGMENT_MAX_DURATION_SECONDS: int = 30
 
     RTMP_OUTPUT_ENABLED: bool = False
     RTMPS_URL: str = ""

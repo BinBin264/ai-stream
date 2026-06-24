@@ -178,6 +178,15 @@ class AvatarRenderWorker:
                 "avatar_id": avatar_id,
             },
         )
+        try:
+            from app.services.playout.playout_segment_service import playout_segment_service  # noqa: PLC0415
+
+            await playout_segment_service.mark_render_job_ready(
+                render_job_id=job_id,
+                source_video_path=stored.video_path or "",
+            )
+        except Exception:
+            logger.exception("Failed to mark playout segment ready", extra={"job_id": job_id})
 
         logger.info("Avatar render completed", extra={"job_id": job_id})
 
@@ -203,6 +212,16 @@ class AvatarRenderWorker:
             )
         else:
             await render_job_repository.mark_failed(job_id, error_code, error_message)
+            try:
+                from app.services.playout.playout_segment_service import playout_segment_service  # noqa: PLC0415
+
+                await playout_segment_service.mark_render_job_failed(
+                    render_job_id=job_id,
+                    error_code=error_code,
+                    error_message=error_message,
+                )
+            except Exception:
+                logger.exception("Failed to mark playout segment failed", extra={"job_id": job_id})
             logger.warning(
                 "Avatar render job failed permanently",
                 extra={"job_id": job_id, "error_code": error_code},

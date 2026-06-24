@@ -62,6 +62,112 @@ Required avatar asset:
 backend/avatars/model_01/idle_base.mp4
 ```
 
+## Dynamic Local Playout
+
+Dynamic playout is the local runtime layer for avatar video:
+
+```text
+start playout session
+→ idle_base.mp4 loops into local HLS preview
+→ enqueue talking MP4 or submit script text
+→ runtime plays one talking segment
+→ runtime returns automatically to idle
+```
+
+Out of scope here:
+
+```text
+Facebook Live creation
+RTMP/RTMPS push
+Meta webhook/comment ingestion
+product recommendation
+GPU rendering inside playout
+```
+
+Apply schema after pulling changes:
+
+```bash
+docker exec -i dtp-stream-postgres psql -U stream_user -d stream_db -f - < backend/db/schema.sql
+```
+
+Start runtime services:
+
+```bash
+docker compose up -d backend redis postgres avatar-worker playout-worker
+```
+
+Create a playout session:
+
+```bash
+curl -X POST http://localhost:8100/api/playout-sessions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "avatar_id": "model_01",
+    "live_session_id": "live_001",
+    "output_mode": "local_preview"
+  }'
+```
+
+Start idle loop runtime:
+
+```bash
+curl -X POST http://localhost:8100/api/playout-sessions/<SESSION_ID>/start
+```
+
+Enqueue an existing talking MP4 under `/app/media`:
+
+```bash
+curl -X POST http://localhost:8100/api/playout-sessions/<SESSION_ID>/segments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_video_path": "renders/avatar-renders/<JOB_ID>.mp4",
+    "priority": "P1",
+    "idempotency_key": "segment-001"
+  }'
+```
+
+Submit text and let the avatar render pipeline create the talking MP4:
+
+```bash
+curl -X POST http://localhost:8100/api/playout-sessions/<SESSION_ID>/scripts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Dạ mẫu A01 hiện còn màu đen size L ạ.",
+    "priority": "P1",
+    "idempotency_key": "script-001"
+  }'
+```
+
+Check health:
+
+```bash
+curl http://localhost:8100/api/playout-sessions/<SESSION_ID>/health
+```
+
+Stop gracefully:
+
+```bash
+curl -X POST http://localhost:8100/api/playout-sessions/<SESSION_ID>/stop \
+  -H "Content-Type: application/json" \
+  -d '{"force": false}'
+```
+
+Local HLS output is written inside the backend media volume:
+
+```text
+/app/media/playout/live/<SESSION_ID>/index.m3u8
+```
+
+Lifecycle events are published to Redis stream `playout.runtime.events`:
+
+```json
+{"event_type":"playout.session.starting","session_id":"..."}
+{"event_type":"playout.session.idle","session_id":"..."}
+{"event_type":"playout.segment.playing","session_id":"...","segment_id":"..."}
+{"event_type":"playout.segment.completed","session_id":"...","segment_id":"..."}
+{"event_type":"playout.session.stopped","session_id":"..."}
+```
+
 ## Workers
 
 Run the full stack:
@@ -122,14 +228,17 @@ curl -X POST http://localhost:8100/api/products/pancake/sync \
 
 ## Next Runtime Work
 
-The remaining integration work is live playout runtime:
+The remaining integration work for the next phase is Facebook RTMPS publishing:
 
 ```text
-idle loop running
-→ receive completed avatar talking segment
-→ queue by priority
-→ insert talking segment into live output
-→ return to idle loop
+local HLS playout
+→ RTMPS output sink
+→ Facebook Live stream key handling
+→ dashboard preview/control
 ```
 
-Current `playout-worker` still needs to be upgraded from queue acknowledgement to real playout control. The old phase validation folders are intentionally removed.
+Known limitations:
+
+- local preview writes HLS chunks; it does not push RTMP/RTMPS yet
+- `force=true` requests immediate stop, but a running FFmpeg clip append may finish its current append first
+- local MuseTalk runtime is still a placeholder unless an external/local runtime is wired in

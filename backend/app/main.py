@@ -6,6 +6,7 @@ from app.api import (
     avatars,
     comments,
     conversations,
+    dynamic_playout,
     facebook,
     health,
     inventory,
@@ -33,6 +34,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(avatars.router)
 app.include_router(avatar_renders.router)
+app.include_router(dynamic_playout.router)
 app.include_router(live.router)
 app.include_router(live_sessions.router)
 app.include_router(live_session_products.router)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 
 from app.workers.dynamic_playout_worker import main
@@ -5,3 +7,4 @@ from app.workers.dynamic_playout_worker import main
 
 if __name__ == "__main__":
     asyncio.run(main())
+

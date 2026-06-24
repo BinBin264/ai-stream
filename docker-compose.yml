@@ -111,7 +111,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: python -m app.workers.avatar_worker
+    command: python -m app.workers.avatar_render_worker
     restart: unless-stopped
 
   playout-worker:

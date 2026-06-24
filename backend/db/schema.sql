@@ -544,3 +544,84 @@ CREATE TABLE IF NOT EXISTS avatar_render_jobs (
 CREATE INDEX IF NOT EXISTS idx_avatar_render_jobs_status ON avatar_render_jobs(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_avatar_render_jobs_tenant ON avatar_render_jobs(tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_avatar_render_jobs_live_session ON avatar_render_jobs(live_session_id) WHERE live_session_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS playout_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    live_session_id TEXT,
+    avatar_id TEXT NOT NULL,
+    idle_video_path TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'stopped',
+    output_mode TEXT NOT NULL DEFAULT 'local_preview',
+    output_path TEXT,
+    active_segment_id UUID,
+    started_at TIMESTAMPTZ,
+    stopped_at TIMESTAMPTZ,
+    last_heartbeat_at TIMESTAMPTZ,
+    error_code TEXT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_playout_sessions_status CHECK (
+        status IN ('stopped', 'starting', 'idle', 'playing_talking', 'stopping', 'failed')
+    ),
+    CONSTRAINT chk_playout_sessions_output_mode CHECK (
+        output_mode IN ('local_preview', 'file_output')
+    )
+);
+
+CREATE TABLE IF NOT EXISTS playout_segments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    playout_session_id UUID NOT NULL REFERENCES playout_sessions(id) ON DELETE CASCADE,
+    avatar_render_job_id UUID REFERENCES avatar_render_jobs(id) ON DELETE SET NULL,
+    source_video_path TEXT,
+    segment_type TEXT NOT NULL DEFAULT 'talking',
+    priority TEXT NOT NULL DEFAULT 'P2',
+    status TEXT NOT NULL DEFAULT 'queued',
+    queue_position INTEGER NOT NULL,
+    idempotency_key TEXT,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    queued_at TIMESTAMPTZ,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    error_code TEXT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_playout_segments_type CHECK (segment_type IN ('talking')),
+    CONSTRAINT chk_playout_segments_status CHECK (
+        status IN ('queued', 'ready', 'playing', 'completed', 'cancelled', 'failed')
+    ),
+    CONSTRAINT chk_playout_segments_priority CHECK (priority IN ('P0', 'P1', 'P2', 'P3', 'P4'))
+);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_playout_sessions_active_segment'
+    ) THEN
+        ALTER TABLE playout_sessions
+            ADD CONSTRAINT fk_playout_sessions_active_segment
+            FOREIGN KEY (active_segment_id)
+            REFERENCES playout_segments(id)
+            ON DELETE SET NULL;
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_playout_sessions_tenant_status ON playout_sessions(tenant_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_playout_sessions_live_session ON playout_sessions(live_session_id) WHERE live_session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_playout_segments_session_status ON playout_segments(playout_session_id, status);
+CREATE INDEX IF NOT EXISTS idx_playout_segments_queue ON playout_segments(
+    playout_session_id,
+    status,
+    priority,
+    queue_position,
+    created_at
+);
+CREATE INDEX IF NOT EXISTS idx_playout_segments_avatar_render_job ON playout_segments(avatar_render_job_id) WHERE avatar_render_job_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_playout_segments_idempotency
+    ON playout_segments(playout_session_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
