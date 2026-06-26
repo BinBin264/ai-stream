@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from app.schemas.dynamic_playout import (
     CreatePlayoutSessionRequest,
@@ -121,6 +121,15 @@ async def stop_playout_session(session_id: str, body: StopPlayoutSessionRequest 
     except DynamicPlayoutError as exc:
         _raise(exc)
     return PlayoutStatusResponse(session_id=session_id, status=row["status"])
+
+
+@router.delete("/{session_id}", status_code=204)
+async def delete_playout_session(session_id: str) -> Response:
+    try:
+        await playout_session_service.delete(session_id)
+    except DynamicPlayoutError as exc:
+        _raise(exc)
+    return Response(status_code=204)
 
 
 @router.post("/{session_id}/scripts", response_model=SubmitPlayoutScriptResponse, status_code=202)

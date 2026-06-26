@@ -6,10 +6,16 @@ interface Props {
   src: string
 }
 
+const RETRY_INTERVAL_MS = 5000
+const MAX_RETRIES = 24
+
 export function HlsPlayer({ src }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [status, setStatus] = useState<'connecting' | 'playing' | 'error'>('connecting')
   const [errorMsg, setErrorMsg] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const retryRef = useRef(0)
 
   useEffect(() => {
     const video = videoRef.current
@@ -17,44 +23,101 @@ export function HlsPlayer({ src }: Props) {
 
     setStatus('connecting')
     setErrorMsg('')
+    setRetryCount(0)
+    retryRef.current = 0
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
 
-    // Safari has native HLS support
-    if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = src
-      video.onloadeddata = () => setStatus('playing')
-      video.onerror = () => { setStatus('error'); setErrorMsg('Stream unavailable') }
-      return () => { video.src = '' }
-    }
-
+    let destroyed = false
     let hls: import('hls.js').default | null = null
 
-    import('hls.js').then(({ default: Hls }) => {
-      if (!Hls.isSupported()) {
+    function scheduleRetry() {
+      retryRef.current += 1
+      if (destroyed || retryRef.current >= MAX_RETRIES) {
         setStatus('error')
-        setErrorMsg('HLS not supported in this browser')
+        setErrorMsg('Stream unavailable after retries')
         return
       }
+      setRetryCount(retryRef.current)
+      retryTimerRef.current = setTimeout(() => {
+        if (!destroyed) attach()
+      }, RETRY_INTERVAL_MS)
+    }
 
-      hls = new Hls({ liveSyncDurationCount: 3, enableWorker: true })
-      hls.loadSource(src)
-      hls.attachMedia(video)
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setStatus('playing')
-        video.play().catch(() => {})
-      })
-
-      hls.on(Hls.Events.ERROR, (_evt, data) => {
-        if (data.fatal) {
+    function attach() {
+      if (destroyed) return
+      hls?.destroy()
+      import('hls.js').then(({ default: Hls }) => {
+        if (destroyed) return
+        if (!Hls.isSupported()) {
           setStatus('error')
-          setErrorMsg(`${data.type} — ${data.details}`)
+          setErrorMsg('HLS not supported in this browser')
+          return
         }
+
+        hls = new Hls({
+          liveSyncDurationCount: 4,
+          liveMaxLatencyDurationCount: 8,
+          enableWorker: true,
+        })
+        hls.loadSource(src)
+        hls.attachMedia(video!)
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (destroyed) return
+          setStatus('playing')
+          video!.play().catch(() => {})
+        })
+
+        hls.on(Hls.Events.ERROR, (_evt, data) => {
+          if (destroyed) return
+          if (data.fatal) {
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              // try to recover media errors before giving up
+              hls?.recoverMediaError()
+            } else {
+              hls?.destroy()
+              hls = null
+              scheduleRetry()
+            }
+          }
+        })
       })
-    })
+    }
+
+    attach()
+
+    // Stall watchdog: if video is "playing" but currentTime hasn't advanced
+    // for 4 seconds, seek to the live edge and resume.
+    let lastTime = -1
+    let stalledFor = 0
+    const watchdog = setInterval(() => {
+      if (destroyed || !hls || !video) return
+      if (video.paused) {
+        video.play().catch(() => {})
+        stalledFor = 0
+        return
+      }
+      if (video.currentTime === lastTime) {
+        stalledFor += 1
+        if (stalledFor >= 2) {
+          // stuck for 4+ seconds — jump to live edge
+          hls.stopLoad()
+          hls.startLoad(-1)
+          video.play().catch(() => {})
+          stalledFor = 0
+        }
+      } else {
+        stalledFor = 0
+      }
+      lastTime = video.currentTime
+    }, 2000)
 
     return () => {
+      destroyed = true
+      clearInterval(watchdog)
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
       hls?.destroy()
-      video.src = ''
+      if (video) video.src = ''
     }
   }, [src])
 
@@ -71,7 +134,9 @@ export function HlsPlayer({ src }: Props) {
       {status === 'connecting' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 text-white">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-          <span className="text-xs">Connecting to stream…</span>
+          <span className="text-xs">
+            {retryCount > 0 ? `Waiting for stream… (retry ${retryCount}/${MAX_RETRIES})` : 'Connecting…'}
+          </span>
         </div>
       )}
 

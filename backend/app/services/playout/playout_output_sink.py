@@ -18,7 +18,7 @@ class PlayoutOutputSink:
     async def start(self, session_id: str) -> str:
         raise NotImplementedError
 
-    async def append_idle(self, *, source_path: Path, duration_seconds: int) -> PlaybackReceipt:
+    async def append_idle(self, *, source_path: Path, duration_seconds: int, start_offset: float = 0.0) -> PlaybackReceipt:
         raise NotImplementedError
 
     async def append_talking(self, *, source_path: Path) -> PlaybackReceipt:

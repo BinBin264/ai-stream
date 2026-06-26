@@ -129,6 +129,19 @@ class InMemoryStore:
     def get_live(self, live_id: str) -> LiveSession | None:
         return self.live_sessions.get(live_id)
 
+    def delete_live(self, live_id: str) -> None:
+        self.live_sessions.pop(live_id, None)
+        self.comments = {
+            comment_id: comment
+            for comment_id, comment in self.comments.items()
+            if comment.live_id != live_id
+        }
+        self.jobs = {
+            job_id: job
+            for job_id, job in self.jobs.items()
+            if job.live_id != live_id
+        }
+
     def save_comment(self, comment: LiveComment) -> LiveComment:
         comment.live_session_id = comment.live_session_id or comment.live_id
         comment.external_comment_id = comment.external_comment_id or comment.facebook_comment_id

@@ -45,11 +45,20 @@ vixtts_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install(["ffmpeg", "libsndfile1", "gcc", "g++"])
     .pip_install(
-        "TTS>=0.22.0",
-        "torchaudio>=2.0.0",
+        "numpy<2",
+        "torch==2.2.2",
+        "torchaudio==2.2.2",
+        "TTS==0.22.0",
+        "transformers==4.37.2",
         "huggingface_hub>=0.23.0",
         "vinorm>=2.0.7",
         "fastapi[standard]",
+    )
+    .run_commands(
+        'python -c "from TTS.tts.configs.xtts_config import XttsConfig; '
+        'from TTS.tts.models.xtts import Xtts; '
+        'import torch, torchaudio; '
+        'print(\'XTTS import ok\', torch.__version__, torchaudio.__version__)"'
     )
 )
 
@@ -89,8 +98,7 @@ def _check_token(request: Request) -> None:
     image=vixtts_image,
     gpu="T4",
     volumes={"/models": model_vol, "/avatars": avatar_vol},
-    container_idle_timeout=300,
-    secrets=[modal.Secret.from_name("ai-stream-secrets", required=False)],
+    scaledown_window=300,
 )
 class TTSService:
     MODEL_DIR = "/models/vixtts"
@@ -122,7 +130,7 @@ class TTSService:
         self._spk = speaker_embedding
         print("[viXTTS] Ready")
 
-    @modal.web_endpoint(method="POST", label="tts")
+    @modal.fastapi_endpoint(method="POST", label="tts")
     async def synthesize(self, request: Request) -> Response:
         import torch
         import torchaudio
@@ -139,8 +147,12 @@ class TTSService:
         except Exception:
             pass
 
+        language = body.get("language") or "en"
+        if language == "vi":
+            language = "en"
+
         out = self._model.inference(
-            text, "vi",
+            text, language,
             self._gpt, self._spk,
             temperature=0.75,
             repetition_penalty=5.0,
@@ -150,7 +162,7 @@ class TTSService:
         torchaudio.save(buf, wav, 24000, format="wav")
         return Response(content=buf.getvalue(), media_type="audio/wav")
 
-    @modal.web_endpoint(method="GET", label="tts-health")
+    @modal.fastapi_endpoint(method="GET", label="tts-health")
     def health(self, request: Request) -> dict:
         return {"status": "ok", "model": "viXTTS", "gpu": "T4"}
 
@@ -161,8 +173,7 @@ class TTSService:
     image=musetalk_image,
     gpu="A10G",
     volumes={"/models": model_vol, "/avatars": avatar_vol},
-    container_idle_timeout=300,
-    secrets=[modal.Secret.from_name("ai-stream-secrets", required=False)],
+    scaledown_window=300,
 )
 class AvatarService:
     MUSETALK_HOME = "/opt/musetalk"
@@ -190,7 +201,7 @@ class AvatarService:
             musetalk_models.symlink_to(weights_dir)
         print("[MuseTalk] Weights ready")
 
-    @modal.web_endpoint(method="POST", label="avatar-render")
+    @modal.fastapi_endpoint(method="POST", label="avatar-render")
     async def render(self, request: Request) -> Response:
         import subprocess
         import tempfile
@@ -242,6 +253,6 @@ class AvatarService:
 
             return Response(content=mp4s[0].read_bytes(), media_type="video/mp4")
 
-    @modal.web_endpoint(method="GET", label="avatar-health")
+    @modal.fastapi_endpoint(method="GET", label="avatar-health")
     def health(self, request: Request) -> dict:
         return {"status": "ok", "model": "MuseTalk", "gpu": "A10G"}

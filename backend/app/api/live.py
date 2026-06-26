@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from app.models.domain import LiveStatus
@@ -77,3 +77,21 @@ async def stop_live(live_id: str) -> dict:
     await meta_client.stop_live(live)
     await realtime_hub.broadcast(live.id, {"type": "live_status", "live": live.model_dump()})
     return {"live": live}
+
+
+@router.delete("/{live_id}", status_code=204)
+async def delete_live_session(live_id: str) -> Response:
+    live = store.get_live(live_id)
+    if live and live.status in {LiveStatus.PREVIEW, LiveStatus.LIVE, LiveStatus.DRAINING}:
+        raise HTTPException(status_code=409, detail="Stop the live session before deleting it")
+    if stream_broadcaster.is_running(live_id):
+        raise HTTPException(status_code=409, detail="Stop the broadcaster before deleting this session")
+    if await live_session_repository.has_active_playout(live_id):
+        raise HTTPException(status_code=409, detail="Stop the playout session before deleting this live session")
+
+    deleted = await live_session_repository.delete(live_id)
+    store.delete_live(live_id)
+    if not deleted and live is None:
+        raise HTTPException(status_code=404, detail="Live session not found")
+    await realtime_hub.broadcast(live_id, {"type": "live_deleted", "live_id": live_id})
+    return Response(status_code=204)

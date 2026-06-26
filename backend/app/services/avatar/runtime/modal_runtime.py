@@ -16,6 +16,8 @@ class ModalAvatarRuntime:
     """Calls the Modal-hosted MuseTalk endpoint for GPU-accelerated avatar render."""
 
     async def health_check(self) -> RuntimeHealth:
+        if not settings.MODAL_ENABLED:
+            return RuntimeHealth(status="unavailable", message="Modal runtime disabled")
         if not settings.MODAL_AVATAR_URL:
             return RuntimeHealth(status="unavailable", message="MODAL_AVATAR_URL not set")
         try:
@@ -28,6 +30,8 @@ class ModalAvatarRuntime:
             return RuntimeHealth(status="degraded", message=str(exc))
 
     async def render(self, request: RenderRequest) -> RenderResult:
+        if not settings.MODAL_ENABLED:
+            raise RuntimeError("Modal avatar runtime is disabled")
         headers: dict[str, str] = {}
         if settings.MODAL_API_TOKEN:
             headers["x-api-token"] = settings.MODAL_API_TOKEN

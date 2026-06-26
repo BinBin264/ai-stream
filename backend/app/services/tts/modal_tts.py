@@ -15,11 +15,13 @@ class ModalTTSProvider:
     """Calls the Modal-hosted viXTTS endpoint for GPU-accelerated TTS."""
 
     async def synthesize(self, request: TTSRequest) -> TTSResult:
+        if not settings.MODAL_ENABLED:
+            raise RuntimeError("Modal TTS is disabled")
         headers: dict[str, str] = {}
         if settings.MODAL_API_TOKEN:
             headers["x-api-token"] = settings.MODAL_API_TOKEN
 
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=settings.MODAL_TTS_TIMEOUT_SECONDS) as client:
             resp = await client.post(
                 settings.MODAL_TTS_URL,
                 json={"text": request.text, "voice_id": request.voice_id},

@@ -174,7 +174,7 @@ class PlayoutSessionService:
                 """,
                 self._uuid(session_id),
                 output_updated_at,
-                settings.PLAYOUT_RUNTIME_HEARTBEAT_SECONDS * 3,
+                str(settings.PLAYOUT_RUNTIME_HEARTBEAT_SECONDS * 3),
             )
         if not row:
             raise DynamicPlayoutError("playout_session_not_found", "playout session not found", status_code=404)
@@ -201,7 +201,7 @@ class PlayoutSessionService:
                 """,
                 self._uuid(session_id),
                 owner_id,
-                settings.PLAYOUT_RUNTIME_HEARTBEAT_SECONDS * 3,
+                str(settings.PLAYOUT_RUNTIME_HEARTBEAT_SECONDS * 3),
                 settings.PLAYOUT_MAX_RUNTIME_RESTARTS + 1,
             )
         return row is not None
@@ -256,6 +256,18 @@ class PlayoutSessionService:
         if not row:
             raise DynamicPlayoutError("playout_session_not_found", "playout session not found", status_code=404)
         return dict(row)
+
+    async def delete(self, session_id: str) -> None:
+        session = await self.get(session_id)
+        if session["status"] not in {"stopped", "failed"}:
+            raise DynamicPlayoutError(
+                "playout_session_not_stopped",
+                "can only delete a stopped or failed session",
+                status_code=409,
+            )
+        async with db_connection() as conn:
+            await conn.execute("DELETE FROM playout_segments WHERE playout_session_id = $1", self._uuid(session_id))
+            await conn.execute("DELETE FROM playout_sessions WHERE id = $1", self._uuid(session_id))
 
     async def request_stop(self, session_id: str, *, force: bool = False) -> dict:
         session = await self.get(session_id)

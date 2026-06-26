@@ -27,6 +27,7 @@ class LocalPreviewSink(PlayoutOutputSink):
         self._alive = False
         self._last_output_update_at: datetime | None = None
         self._segments: list[HlsSegment] = []
+        self._output_offset: float = 0.0
 
     async def start(self, session_id: str) -> str:
         self.session_id = session_id
@@ -37,13 +38,14 @@ class LocalPreviewSink(PlayoutOutputSink):
             child.unlink(missing_ok=True)
         self.sequence = 0
         self._segments = []
+        self._output_offset = 0.0
         self._write_playlist(endlist=False)
         self._alive = True
         self._last_output_update_at = datetime.now(timezone.utc)
         return self._relative_output_path(self.playlist_path)
 
-    async def append_idle(self, *, source_path: Path, duration_seconds: int) -> PlaybackReceipt:
-        return await self._append_clip(source_path=source_path, duration_seconds=duration_seconds, idle=True)
+    async def append_idle(self, *, source_path: Path, duration_seconds: int, start_offset: float = 0.0) -> PlaybackReceipt:
+        return await self._append_clip(source_path=source_path, duration_seconds=duration_seconds, idle=True, start_offset=start_offset)
 
     async def append_talking(self, *, source_path: Path) -> PlaybackReceipt:
         return await self._append_clip(source_path=source_path, duration_seconds=None, idle=False)
@@ -59,18 +61,22 @@ class LocalPreviewSink(PlayoutOutputSink):
     def last_output_update_at(self):
         return self._last_output_update_at
 
-    async def _append_clip(self, *, source_path: Path, duration_seconds: int | None, idle: bool) -> PlaybackReceipt:
+    async def _append_clip(self, *, source_path: Path, duration_seconds: int | None, idle: bool, start_offset: float = 0.0) -> PlaybackReceipt:
         if not self.output_dir or not self.playlist_path:
             raise DynamicPlayoutError("playout_runtime_not_available", "local preview sink is not started")
         if not source_path.exists():
             raise DynamicPlayoutError("playout_segment_missing", "source media does not exist")
 
         started_at = datetime.now(timezone.utc)
+        ts_offset = self._output_offset
         filename = f"seg_{self.sequence:08d}.ts"
         output_path = self.output_dir / filename
         args = [self.ffmpeg_bin, "-y"]
         if idle:
-            args.extend(["-stream_loop", "-1", "-i", str(source_path)])
+            args.extend(["-stream_loop", "-1"])
+            if start_offset > 0.0:
+                args.extend(["-ss", str(start_offset)])
+            args.extend(["-i", str(source_path)])
         else:
             args.extend(["-i", str(source_path)])
         if idle:
@@ -106,6 +112,8 @@ class LocalPreviewSink(PlayoutOutputSink):
             [
                 "-c:v",
                 settings.PLAYOUT_VIDEO_CODEC,
+                "-preset",
+                "ultrafast",
                 "-pix_fmt",
                 settings.PLAYOUT_PIXEL_FORMAT,
                 "-c:a",
@@ -114,6 +122,8 @@ class LocalPreviewSink(PlayoutOutputSink):
                 str(settings.PLAYOUT_AUDIO_SAMPLE_RATE),
                 "-ac",
                 str(settings.PLAYOUT_AUDIO_CHANNELS),
+                "-output_ts_offset",
+                f"{ts_offset:.6f}",
                 "-f",
                 "mpegts",
                 str(output_path),
@@ -140,6 +150,7 @@ class LocalPreviewSink(PlayoutOutputSink):
         segment_duration = float(duration_seconds or settings.PLAYOUT_HLS_TIME_SECONDS)
         if not idle:
             segment_duration = await self._probe_duration(source_path)
+        self._output_offset += segment_duration
         current_sequence = self.sequence
         self._segments.append(HlsSegment(current_sequence, filename, segment_duration))
         self.sequence += 1
@@ -204,6 +215,7 @@ class LocalPreviewSink(PlayoutOutputSink):
         lines = [
             "#EXTM3U",
             "#EXT-X-VERSION:3",
+            "#EXT-X-INDEPENDENT-SEGMENTS",
             f"#EXT-X-TARGETDURATION:{target_duration}",
             f"#EXT-X-MEDIA-SEQUENCE:{media_sequence}",
         ]

@@ -17,6 +17,21 @@ Generated media should not be committed. In Docker it is written to the `media_d
 
 ## Run
 
+Set up modal:
+
+```bash
+cd /Users/dtp03/Documents/ai-stream/ai-stream
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install modal
+modal setup
+```
+copy url modal to .env
+
+after that run: 
+
 ```bash
 cp .env.example .env
 docker compose up -d postgres redis backend frontend

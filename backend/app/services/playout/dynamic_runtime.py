@@ -23,6 +23,8 @@ class DynamicPlayoutRuntime:
         self._stop_event = asyncio.Event()
         self._force_stop_event = asyncio.Event()
         self._sink = None
+        self._idle_offset: float = 0.0
+        self._idle_duration: float | None = None
 
     def request_stop(self) -> None:
         self._stop_event.set()
@@ -105,13 +107,39 @@ class DynamicPlayoutRuntime:
             if self.owner_id:
                 await playout_session_service.release_lease(self.session_id, self.owner_id)
 
+    async def _probe_idle_duration(self, idle_path: Path) -> float:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", str(idle_path),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+            return max(1.0, float(stdout.decode().strip()))
+        except Exception:
+            return float(max(1, settings.PLAYOUT_HLS_TIME_SECONDS))
+
     async def _append_idle_chunk(self, idle_path: Path) -> None:
         assert self._sink is not None
+        if self._idle_duration is None:
+            self._idle_duration = await self._probe_idle_duration(idle_path)
+
+        chunk_duration = max(1, settings.PLAYOUT_HLS_TIME_SECONDS)
+        started = time.monotonic()
         receipt = await self._sink.append_idle(
             source_path=idle_path,
-            duration_seconds=max(1, settings.PLAYOUT_HLS_TIME_SECONDS),
+            duration_seconds=chunk_duration,
+            start_offset=self._idle_offset,
         )
-        await self._wait_for_playback(receipt.duration_seconds, interrupt_on_graceful_stop=True)
+        # Advance position through the idle video, wrapping at the end.
+        self._idle_offset = (self._idle_offset + chunk_duration) % self._idle_duration
+
+        # Pace to ~2× real-time: sleep half the remaining time so the HLS
+        # live edge stays 1-2 segments ahead of the player without racing
+        # so far ahead that hls.js loses track.
+        remaining = receipt.duration_seconds - (time.monotonic() - started)
+        if remaining > 0.05:
+            await self._wait_for_playback(remaining * 0.5, interrupt_on_graceful_stop=True)
         await playout_session_service.touch_heartbeat(
             self.session_id,
             output_updated_at=receipt.appended_at,

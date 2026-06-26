@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 def _build_runtime():
     provider = settings.AVATAR_RENDER_PROVIDER
     if provider == "modal":
+        if not settings.MODAL_ENABLED:
+            raise RuntimeError("Modal avatar runtime is disabled. Set MODAL_ENABLED=true to enable it explicitly.")
         from app.services.avatar.runtime.modal_runtime import ModalAvatarRuntime  # noqa: PLC0415
         return ModalAvatarRuntime()
     if provider == "local":

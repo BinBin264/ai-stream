@@ -41,13 +41,15 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.0-flash"
     GEMINI_ENABLED: bool = True
 
+    MODAL_ENABLED: bool = False
     MODAL_TTS_URL: str = ""
     MODAL_AVATAR_URL: str = ""
     MODAL_API_TOKEN: str = ""
+    MODAL_TTS_TIMEOUT_SECONDS: int = 600
 
     MEDIA_ENABLED: bool = True
     DEFAULT_RENDER_PROFILE_ID: str = "00000000-0000-0000-0000-000000000701"
-    TTS_PROVIDER: str = "vixtts"
+    TTS_PROVIDER: str = "fake"
     VIXTTS_MODEL_DIR: str = "/app/models/vixtts"
     VIXTTS_SPEAKER_WAV: str = "/app/avatars/model_01/speaker_reference.wav"
     STREAM_COMMENTS: str = "stream:comments"
@@ -67,7 +69,7 @@ class Settings(BaseSettings):
     PLAYOUT_RUNTIME_EVENTS_STREAM: str = "playout.runtime.events"
     PLAYOUT_RUNTIME_CONSUMER_GROUP: str = "dynamic-playout-workers"
     AVATAR_RENDER_CONSUMER_GROUP: str = "avatar-render-workers"
-    AVATAR_RENDER_PROVIDER: str = "fake"   # fake | local
+    AVATAR_RENDER_PROVIDER: str = "fake"   # fake | local | modal
     AVATAR_RUNTIME_TIMEOUT_SECONDS: int = 1800
     AVATAR_RUNTIME_POLL_INTERVAL_SECONDS: int = 3
     AVATAR_RENDER_MAX_RETRIES: int = 1

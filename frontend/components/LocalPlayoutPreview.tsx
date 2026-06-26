@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Play, Square, Zap, Send, Film, RefreshCcw, AlertCircle } from 'lucide-react'
+import { Play, Square, Send, Film, RefreshCcw, AlertCircle } from 'lucide-react'
 import { api, type PlayoutHealth, type PlayoutSession } from '@/lib/api'
 import { HlsPlayer } from './HlsPlayer'
 
@@ -44,6 +44,9 @@ export function LocalPlayoutPreview({ liveSessionId, avatarId = 'model_01' }: Pr
       if (h.status === 'stopped' || h.status === 'failed') {
         pollRef.current && clearInterval(pollRef.current)
         pollRef.current = null
+        setSession(null)
+        setHealth(null)
+        api.deletePlayoutSession(sid).catch(() => {})
       }
     } catch {
       // ignore transient poll errors
@@ -56,7 +59,10 @@ export function LocalPlayoutPreview({ liveSessionId, avatarId = 'model_01' }: Pr
   }, [pollHealth])
 
   useEffect(() => {
-    // On mount: find existing active session for this live
+    // Reset state when switching live sessions
+    setSession(null)
+    setHealth(null)
+
     api.listPlayoutSessions().then(({ items }) => {
       const active = items.find(
         (s) =>
@@ -73,32 +79,19 @@ export function LocalPlayoutPreview({ liveSessionId, avatarId = 'model_01' }: Pr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveSessionId])
 
-  async function createSession() {
+  async function startStream() {
     setBusy(true)
     clearError()
     try {
       const s = await api.createPlayoutSession(avatarId, liveSessionId ?? null, 'local_preview')
       setSession(s)
       setHealth(null)
-      pushLog(`Session created: ${s.session_id.slice(0, 8)}`)
+      await api.startPlayoutSession(s.session_id)
+      pushLog(`Stream started: ${s.session_id.slice(0, 8)}`)
+      startPolling(s.session_id)
+      await pollHealth(s.session_id)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create session')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function startSession() {
-    if (!session) return
-    setBusy(true)
-    clearError()
-    try {
-      await api.startPlayoutSession(session.session_id)
-      pushLog('Start requested')
-      startPolling(session.session_id)
-      await pollHealth(session.session_id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to start')
+      setError(e instanceof Error ? e.message : 'Failed to start stream')
     } finally {
       setBusy(false)
     }
@@ -187,32 +180,18 @@ export function LocalPlayoutPreview({ liveSessionId, avatarId = 'model_01' }: Pr
       {/* Session controls */}
       <div className="flex flex-wrap gap-2">
         <button
-          disabled={busy || !!session}
-          onClick={createSession}
-          className="rounded-md bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+          disabled={busy || isRunning}
+          onClick={startStream}
+          className="flex items-center gap-1 rounded-md bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
         >
-          New Session
-        </button>
-        <button
-          disabled={busy || !session || isRunning}
-          onClick={startSession}
-          className="flex items-center gap-1 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
-        >
-          <Play size={12} /> Start
-        </button>
-        <button
-          disabled={busy || !isRunning}
-          onClick={() => stopSession(false)}
-          className="flex items-center gap-1 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
-        >
-          <Square size={12} /> Stop
+          <Play size={12} /> Start Stream
         </button>
         <button
           disabled={busy || !isRunning}
           onClick={() => stopSession(true)}
           className="flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-40"
         >
-          <Zap size={12} /> Force Stop
+          <Square size={12} /> Stop
         </button>
       </div>
 

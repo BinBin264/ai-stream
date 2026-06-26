@@ -91,6 +91,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     throw new Error(await response.text())
   }
+  if (response.status === 204) {
+    return undefined as T
+  }
   return response.json() as Promise<T>
 }
 
@@ -113,6 +116,7 @@ export const api = {
   startLive: (liveId: string) => request<{ live: LiveSession }>(`/api/live/${liveId}/start`, { method: 'POST' }),
   goLive: (liveId: string) => request<{ live: LiveSession }>(`/api/live/${liveId}/go-live`, { method: 'POST' }),
   stopLive: (liveId: string) => request<{ live: LiveSession }>(`/api/live/${liveId}/stop`, { method: 'POST' }),
+  deleteLive: (liveId: string) => request<void>(`/api/live/${liveId}`, { method: 'DELETE' }),
   answerComment: (commentId: string) =>
     request<{ job: ResponseJob }>(`/api/comments/${commentId}/answer`, { method: 'POST' }),
   listPlayoutSessions: () =>
@@ -129,6 +133,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ force }),
     }),
+  deletePlayoutSession: (sessionId: string) =>
+    request<void>(`/api/playout-sessions/${sessionId}`, { method: 'DELETE' }),
   getPlayoutHealth: (sessionId: string) =>
     request<PlayoutHealth>(`/api/playout-sessions/${sessionId}/health`),
   submitPlayoutScript: (sessionId: string, text: string, priority = 'P2') =>

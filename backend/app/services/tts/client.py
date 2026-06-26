@@ -13,6 +13,8 @@ def get_tts_provider() -> TTSProvider:
         from app.services.tts.vixtts_tts import ViXTTSProvider  # noqa: PLC0415
         return ViXTTSProvider(settings.VIXTTS_MODEL_DIR, settings.VIXTTS_SPEAKER_WAV)
     if settings.TTS_PROVIDER == "modal":
+        if not settings.MODAL_ENABLED:
+            raise RuntimeError("Modal TTS is disabled. Set MODAL_ENABLED=true to enable it explicitly.")
         from app.services.tts.modal_tts import ModalTTSProvider  # noqa: PLC0415
         return ModalTTSProvider()
     raise RuntimeError(f"Unsupported TTS_PROVIDER: {settings.TTS_PROVIDER}")
