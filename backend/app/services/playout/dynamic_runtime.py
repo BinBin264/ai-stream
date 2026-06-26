@@ -121,7 +121,10 @@ class DynamicPlayoutRuntime:
         assert self._sink is not None
         segment_id = str(segment["id"])
         try:
-            segment = await playout_segment_service.mark_playing(segment_id)
+            source = safe_join(Path(settings.MEDIA_OUTPUT_DIR), str(segment["source_video_path"]), field="source_video_path")
+            receipt = await self._sink.append_talking(source_path=source)
+            # HLS write succeeded — only now update DB state
+            await playout_segment_service.mark_playing(segment_id)
             await playout_session_service.transition(
                 self.session_id,
                 "playing_talking",
@@ -134,8 +137,6 @@ class DynamicPlayoutRuntime:
                     "segment_id": segment_id,
                 }
             )
-            source = safe_join(Path(settings.MEDIA_OUTPUT_DIR), str(segment["source_video_path"]), field="source_video_path")
-            receipt = await self._sink.append_talking(source_path=source)
             completed = await self._wait_for_playback(receipt.duration_seconds, interrupt_on_graceful_stop=False)
             if not completed:
                 await playout_segment_service.mark_failed(

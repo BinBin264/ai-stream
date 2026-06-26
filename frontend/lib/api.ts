@@ -32,6 +32,39 @@ export interface ResponseJob {
   created_at: string
 }
 
+export interface PlayoutSession {
+  session_id: string
+  avatar_id: string
+  live_session_id: string | null
+  status: string
+  output_mode: string
+  idle_video_path: string
+  output_path: string | null
+  active_segment_id: string | null
+  error_code: string | null
+  error_message: string | null
+}
+
+export interface PlayoutHealth {
+  session_id: string
+  status: string
+  runtime_alive: boolean
+  active_segment_id: string | null
+  queued_segments: number
+  output_path: string | null
+  last_error_code: string | null
+}
+
+export interface PlayoutSegment {
+  segment_id: string
+  playout_session_id: string
+  status: string
+  priority: string
+  source_video_path: string | null
+  error_code: string | null
+  error_message: string | null
+}
+
 export interface OpsDashboard {
   live_sessions: number
   comments: number
@@ -82,6 +115,32 @@ export const api = {
   stopLive: (liveId: string) => request<{ live: LiveSession }>(`/api/live/${liveId}/stop`, { method: 'POST' }),
   answerComment: (commentId: string) =>
     request<{ job: ResponseJob }>(`/api/comments/${commentId}/answer`, { method: 'POST' }),
+  listPlayoutSessions: () =>
+    request<{ items: PlayoutSession[] }>('/api/playout-sessions'),
+  createPlayoutSession: (avatarId: string, liveSessionId: string | null, outputMode: string) =>
+    request<PlayoutSession>('/api/playout-sessions', {
+      method: 'POST',
+      body: JSON.stringify({ avatar_id: avatarId, live_session_id: liveSessionId, output_mode: outputMode }),
+    }),
+  startPlayoutSession: (sessionId: string) =>
+    request<{ session_id: string; status: string }>(`/api/playout-sessions/${sessionId}/start`, { method: 'POST' }),
+  stopPlayoutSession: (sessionId: string, force = false) =>
+    request<{ session_id: string; status: string }>(`/api/playout-sessions/${sessionId}/stop`, {
+      method: 'POST',
+      body: JSON.stringify({ force }),
+    }),
+  getPlayoutHealth: (sessionId: string) =>
+    request<PlayoutHealth>(`/api/playout-sessions/${sessionId}/health`),
+  submitPlayoutScript: (sessionId: string, text: string, priority = 'P2') =>
+    request<{ render_job_id: string; playout_segment_id: string | null; status: string; message: string }>(
+      `/api/playout-sessions/${sessionId}/scripts`,
+      { method: 'POST', body: JSON.stringify({ text, priority }) },
+    ),
+  enqueuePlayoutSegment: (sessionId: string, sourceVideoPath: string, priority = 'P2') =>
+    request<PlayoutSegment>(`/api/playout-sessions/${sessionId}/segments`, {
+      method: 'POST',
+      body: JSON.stringify({ source_video_path: sourceVideoPath, priority }),
+    }),
 }
 
 export function liveWsUrl(liveId: string): string {

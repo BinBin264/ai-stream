@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, MessageSquare, Play, Radio, RefreshCcw, Square, Wand2 } from 'lucide-react'
 import { api, liveWsUrl, type LiveComment, type LiveSession, type OpsDashboard, type ResponseJob } from '@/lib/api'
+import { LocalPlayoutPreview } from './LocalPlayoutPreview'
 import { StatusPill } from './StatusPill'
 
 type StreamEvent = {
@@ -31,8 +32,10 @@ export function OperatorDashboard() {
   }
 
   async function refresh() {
-    const list = await api.listLives()
-    const opsDashboard = await api.opsDashboard()
+    const [list, opsDashboard] = await Promise.all([
+      api.listLives(),
+      api.opsDashboard(),
+    ])
     setOps(opsDashboard)
     setLives(list.items)
     const selected = activeLiveId ? list.items.find((item) => item.id === activeLiveId) : list.items[0]
@@ -177,6 +180,8 @@ export function OperatorDashboard() {
                 {lives.length === 0 && <p className="text-sm text-slate-500">No live sessions yet.</p>}
               </div>
             </div>
+            {/* Playout preview + controls */}
+            <LocalPlayoutPreview liveSessionId={activeLive?.id ?? null} />
           </aside>
 
           <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
