@@ -26,53 +26,36 @@ class Settings(BaseSettings):
 
     PANCAKE_POS_BASE_URL: str = "https://pos.pages.fm/api/v1"
 
-    OPENAI_API_KEY: str = ""
-    OPENAI_COMMENT_MODEL: str = ""
-    OPENAI_STRATEGY_MODEL: str = ""
-    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
-    OPENAI_MODERATION_MODEL: str = ""
-    OPENAI_TTS_MODEL: str = ""
-    OPENAI_STORE_RESPONSES: bool = False
 
-    TOKEN_ENCRYPTION_KEY: str = ""
     PII_HASH_SALT: str = "change-me-local-salt"
 
     DEFAULT_RESERVATION_TTL_MINUTES: int = 10
     MAX_ORDER_QUANTITY_PER_ITEM: int = 10
     ORDER_HIGH_VALUE_REVIEW_THRESHOLD_VND: int = 3_000_000
-    LOW_STOCK_THRESHOLD: int = 3
 
-    AI_ENABLED: bool = True
-    AI_AUTO_REPLY_ENABLED: bool = False
     AI_SPEECH_ENABLED: bool = True
     AI_HUMAN_HANDOVER_CONFIDENCE_THRESHOLD: float = 0.75
-    AI_MAX_REPLY_LENGTH: int = 300
     AI_AVATAR_BASE_URL: str = "http://host.docker.internal:8000"
-    AI_AVATAR_API_TOKEN: str = ""
+
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_ENABLED: bool = True
+
+    MODAL_TTS_URL: str = ""
+    MODAL_AVATAR_URL: str = ""
+    MODAL_API_TOKEN: str = ""
 
     MEDIA_ENABLED: bool = True
-    MEDIA_PROVIDER: str = "ffmpeg"
-    MEDIA_RENDER_PROVIDER: str = "local"
-    MEDIA_RENDER_BASE_URL: str = ""
-    MEDIA_RENDER_API_TOKEN: str = ""
     DEFAULT_RENDER_PROFILE_ID: str = "00000000-0000-0000-0000-000000000701"
-    TTS_PROVIDER: str = "elevenlabs"
-    ELEVENLABS_API_KEY: str = ""
-    ELEVENLABS_VOICE_ID: str = ""
-    ELEVENLABS_MODEL_ID: str = "eleven_multilingual_v2"
-    ELEVENLABS_OUTPUT_FORMAT: str = "mp3_44100_128"
-    AVATAR_RUNTIME_PROVIDER: str = "musetalk"
-    AVATAR_RUNTIME_BASE_URL: str = ""
-    AVATAR_RUNTIME_API_TOKEN: str = ""
+    TTS_PROVIDER: str = "vixtts"
+    VIXTTS_MODEL_DIR: str = "/app/models/vixtts"
+    VIXTTS_SPEAKER_WAV: str = "/app/avatars/model_01/speaker_reference.wav"
     STREAM_COMMENTS: str = "stream:comments"
     STREAM_SPEECH: str = "stream:speech"
-    STREAM_AVATAR: str = "stream:avatar"
-    STREAM_PLAYOUT: str = "stream:playout"
     REDIS_GROUP_COMMENTS: str = "comment-workers"
     REDIS_GROUP_SPEECH: str = "speech-workers"
-    REDIS_GROUP_AVATAR: str = "avatar-workers"
-    REDIS_GROUP_PLAYOUT: str = "playout-workers"
     MEDIA_OUTPUT_DIR: str = "/app/media"
+    SERVE_LOCAL_MEDIA: bool = True
 
     # Automated avatar render pipeline
     AVATAR_RENDER_STREAM: str = "avatar.render"
@@ -93,8 +76,6 @@ class Settings(BaseSettings):
     AVATAR_MEDIA_ROOT: str = "media"
 
     # Local playout program assembly
-    FFMPEG_BIN: str = "ffmpeg"
-    FFPROBE_BIN: str = "ffprobe"
     PLAYOUT_MEDIA_ROOT: str = "media/playout"
     PLAYOUT_MANIFEST_DIR: str = "media/playout/manifests"
     PLAYOUT_NORMALIZED_DIR: str = "media/playout/normalized"
@@ -128,7 +109,6 @@ class Settings(BaseSettings):
     PLAYOUT_RUNTIME_HEARTBEAT_SECONDS: int = 5
     PLAYOUT_SEGMENT_MAX_DURATION_SECONDS: int = 30
 
-    RTMP_OUTPUT_ENABLED: bool = False
     RTMPS_URL: str = ""
     RTMPS_STREAM_KEY: str = ""
     IDLE_VIDEO_PATH: str = "/app/avatars/model_01/idle_base.mp4"
@@ -151,10 +131,6 @@ class Settings(BaseSettings):
             }.items():
                 if not value:
                     missing.append(key)
-        if self.AI_ENABLED and self.OPENAI_COMMENT_MODEL and not self.OPENAI_API_KEY:
-            missing.append("OPENAI_API_KEY")
-        if not self.TOKEN_ENCRYPTION_KEY:
-            missing.append("TOKEN_ENCRYPTION_KEY")
         if self.PII_HASH_SALT == "change-me-local-salt":
             missing.append("PII_HASH_SALT")
         if missing:

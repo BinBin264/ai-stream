@@ -56,7 +56,7 @@ Default idle video:
 IDLE_VIDEO_PATH=/app/avatars/model_01/idle_base.mp4
 ```
 
-Required avatar asset:
+Required avatar asset. Put the real file here manually; generated media outputs should not be committed:
 
 ```text
 backend/avatars/model_01/idle_base.mp4
@@ -93,7 +93,7 @@ docker exec -i dtp-stream-postgres psql -U stream_user -d stream_db -f - < backe
 Start runtime services:
 
 ```bash
-docker compose up -d backend redis postgres avatar-worker playout-worker
+docker compose up -d backend redis postgres avatar-worker dynamic-playout-worker
 ```
 
 Create a playout session:
@@ -158,6 +158,12 @@ Local HLS output is written inside the backend media volume:
 /app/media/playout/live/<SESSION_ID>/index.m3u8
 ```
 
+When `SERVE_LOCAL_MEDIA=true`, development preview URL:
+
+```text
+http://localhost:8100/media/playout/live/<SESSION_ID>/index.m3u8
+```
+
 Lifecycle events are published to Redis stream `playout.runtime.events`:
 
 ```json
@@ -182,7 +188,7 @@ Relevant services:
 comment-worker   Facebook/comment queue processing
 speech-worker    TTS queue processing
 avatar-worker    avatar render queue processing
-playout-worker   playout queue consumer
+dynamic-playout-worker   dynamic local HLS playout runtime
 ```
 
 ## Facebook Live

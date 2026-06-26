@@ -33,9 +33,9 @@ class SpeechWorker:
         tenant_id = payload.get("tenant_id") or DEMO_TENANT_ID
         try:
             item = await media_publisher.mark_processing(speech_item_id, tenant_id=tenant_id)
-            suffix = ".wav" if settings.TTS_PROVIDER == "fake" else ".mp3"
+            suffix = ".mp3" if settings.TTS_PROVIDER == "vietnamese" else ".wav"
             output_path = Path(settings.MEDIA_OUTPUT_DIR) / "audio" / f"{speech_item_id}{suffix}"
-            voice_id = item["voice"] if item["voice"] != "default" else settings.ELEVENLABS_VOICE_ID
+            voice_id = item["voice"] if item["voice"] != "default" else None
             result = await self.tts.synthesize(
                 text=item["text"],
                 voice_id=voice_id,

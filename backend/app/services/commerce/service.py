@@ -1,4 +1,5 @@
 import hashlib
+import logging
 
 from app.core.config import settings
 from app.models.domain import (
@@ -11,12 +12,15 @@ from app.models.domain import (
     ModerationStatus,
     OrderStatus,
 )
+from app.services.ai.gemini_client import gemini_client
 from app.services.comments.normalizer import comment_normalizer
 from app.services.comments.rule_parser import purchase_intent_rule_parser
 from app.services.media.publisher import media_publisher
 from app.services.moderation.service import moderation_service
 from app.services.reply.policy import reply_policy
 from app.services.store import store
+
+logger = logging.getLogger(__name__)
 
 
 class CommercePipelineService:
@@ -76,11 +80,13 @@ class CommercePipelineService:
             return await self._create_order(comment, conversation, parsed)
 
         if parsed.intent in {CommerceIntent.PRODUCT_QUESTION, CommerceIntent.PRICE_QUESTION, CommerceIntent.SHIPPING_QUESTION}:
-            reply = reply_policy.product_question(parsed.sku_codes[0] if parsed.sku_codes else None)
+            fallback = reply_policy.product_question(parsed.sku_codes[0] if parsed.sku_codes else None)
+            reply = await self._ai_reply(comment, fallback)
         elif parsed.intent == CommerceIntent.CANCEL_ORDER:
             reply = "Em đã nhận yêu cầu hủy. Tư vấn viên sẽ kiểm tra đơn đang hoạt động và hỗ trợ mình ạ."
         else:
-            reply = reply_policy.low_confidence()
+            fallback = reply_policy.low_confidence()
+            reply = await self._ai_reply(comment, fallback)
 
         comment.status = CommentStatus.ANSWERED
         store.save_comment(comment)
@@ -178,6 +184,16 @@ class CommercePipelineService:
             priority=priority,
             voice="default",
         )
+
+    async def _ai_reply(self, comment: LiveComment, fallback: str) -> str:
+        if not (settings.GEMINI_ENABLED and settings.GEMINI_API_KEY):
+            return fallback
+        try:
+            prompt = f'Khách hàng {comment.user_name} bình luận trong livestream: "{comment.text}"'
+            return await gemini_client.generate(prompt)
+        except Exception:
+            logger.warning("Gemini reply failed for comment %s, using fallback", comment.id)
+            return fallback
 
     def _viewer_hash(self, raw: str) -> str:
         value = f"{settings.PII_HASH_SALT}:{raw}"

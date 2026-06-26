@@ -12,8 +12,8 @@ dist/
 .modal/
 
 # Runtime/generated media should live in Docker volumes or local ignored output.
-backend/media/
-media/
+/backend/media/
+/media/
 
 # Binary media and model artifacts
 *.mp4
@@ -25,6 +25,9 @@ media/
 *.ckpt
 *.onnx
 *.safetensors
+
+# Required source avatar assets.
+!backend/avatars/*/idle_base.mp4
 
 # Local model caches
 backend/models/

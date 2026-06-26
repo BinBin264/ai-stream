@@ -58,8 +58,8 @@ class ProgramBuilder:
             audio_rate=settings.PLAYOUT_TARGET_AUDIO_RATE,
             audio_channels=settings.PLAYOUT_TARGET_AUDIO_CHANNELS,
         )
-        self.probe_service = probe_service or FFprobeService(settings.FFPROBE_BIN)
-        self.runner = runner or FFmpegRunner(settings.FFMPEG_BIN)
+        self.probe_service = probe_service or FFprobeService("ffprobe")
+        self.runner = runner or FFmpegRunner("ffmpeg")
         self.validator = SegmentValidator(
             backend_root=self.backend_root,
             media_root=self.media_root,

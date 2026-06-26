@@ -23,7 +23,8 @@ class RuntimeHealthService:
             "active_segment_id": str(session["active_segment_id"]) if session.get("active_segment_id") else None,
             "queued_segments": queued,
             "last_heartbeat_at": session.get("last_heartbeat_at"),
-            "last_output_update_at": last_output_update_at,
+            "last_output_update_at": last_output_update_at or session.get("last_output_update_at"),
+            "output_path": session.get("output_path"),
             "last_error_code": session.get("error_code"),
         }
 

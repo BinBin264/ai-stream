@@ -1,23 +1,32 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.core.config import settings
 from app.services.playout.dynamic_errors import DynamicPlayoutError
-from app.services.playout.playout_output_sink import PlayoutOutputSink
+from app.services.playout.playout_output_sink import PlaybackReceipt, PlayoutOutputSink
+
+
+@dataclass(frozen=True)
+class HlsSegment:
+    sequence: int
+    filename: str
+    duration_seconds: float
 
 
 class LocalPreviewSink(PlayoutOutputSink):
     def __init__(self, *, ffmpeg_bin: str | None = None) -> None:
-        self.ffmpeg_bin = ffmpeg_bin or settings.FFMPEG_BIN
+        self.ffmpeg_bin = ffmpeg_bin or "ffmpeg"
         self.session_id: str | None = None
         self.output_dir: Path | None = None
         self.playlist_path: Path | None = None
         self.sequence = 0
         self._alive = False
         self._last_output_update_at: datetime | None = None
+        self._segments: list[HlsSegment] = []
 
     async def start(self, session_id: str) -> str:
         self.session_id = session_id
@@ -26,26 +35,22 @@ class LocalPreviewSink(PlayoutOutputSink):
         self.playlist_path = self.output_dir / "index.m3u8"
         for child in self.output_dir.glob("*.ts"):
             child.unlink(missing_ok=True)
-        self.playlist_path.write_text(
-            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:"
-            f"{max(1, settings.PLAYOUT_HLS_TIME_SECONDS)}\n#EXT-X-MEDIA-SEQUENCE:0\n",
-            encoding="utf-8",
-        )
         self.sequence = 0
+        self._segments = []
+        self._write_playlist(endlist=False)
         self._alive = True
         self._last_output_update_at = datetime.now(timezone.utc)
         return self._relative_output_path(self.playlist_path)
 
-    async def append_idle(self, *, source_path: Path, duration_seconds: int) -> None:
-        await self._append_clip(source_path=source_path, duration_seconds=duration_seconds, idle=True)
+    async def append_idle(self, *, source_path: Path, duration_seconds: int) -> PlaybackReceipt:
+        return await self._append_clip(source_path=source_path, duration_seconds=duration_seconds, idle=True)
 
-    async def append_talking(self, *, source_path: Path) -> None:
-        await self._append_clip(source_path=source_path, duration_seconds=None, idle=False)
+    async def append_talking(self, *, source_path: Path) -> PlaybackReceipt:
+        return await self._append_clip(source_path=source_path, duration_seconds=None, idle=False)
 
     async def stop(self) -> None:
         if self.playlist_path and self.playlist_path.exists():
-            with self.playlist_path.open("a", encoding="utf-8") as handle:
-                handle.write("#EXT-X-ENDLIST\n")
+            self._write_playlist(endlist=True)
         self._alive = False
 
     def is_alive(self) -> bool:
@@ -54,12 +59,13 @@ class LocalPreviewSink(PlayoutOutputSink):
     def last_output_update_at(self):
         return self._last_output_update_at
 
-    async def _append_clip(self, *, source_path: Path, duration_seconds: int | None, idle: bool) -> None:
+    async def _append_clip(self, *, source_path: Path, duration_seconds: int | None, idle: bool) -> PlaybackReceipt:
         if not self.output_dir or not self.playlist_path:
             raise DynamicPlayoutError("playout_runtime_not_available", "local preview sink is not started")
         if not source_path.exists():
             raise DynamicPlayoutError("playout_segment_missing", "source media does not exist")
 
+        started_at = datetime.now(timezone.utc)
         filename = f"seg_{self.sequence:08d}.ts"
         output_path = self.output_dir / filename
         args = [self.ffmpeg_bin, "-y"]
@@ -122,24 +128,35 @@ class LocalPreviewSink(PlayoutOutputSink):
             )
         except FileNotFoundError as exc:
             raise DynamicPlayoutError("playout_ffmpeg_missing", "ffmpeg binary is not available") from exc
-        _stdout, stderr = await proc.communicate()
+        _stdout, _stderr = await proc.communicate()
         if proc.returncode != 0:
             raise DynamicPlayoutError(
                 "playout_hls_output_failed",
                 f"failed to append {'idle' if idle else 'talking'} media to local preview",
             )
+        if not output_path.exists() or output_path.stat().st_size <= 0:
+            raise DynamicPlayoutError("playout_hls_output_failed", "HLS segment output was not written")
 
         segment_duration = float(duration_seconds or settings.PLAYOUT_HLS_TIME_SECONDS)
         if not idle:
             segment_duration = await self._probe_duration(source_path)
-        with self.playlist_path.open("a", encoding="utf-8") as handle:
-            handle.write(f"#EXTINF:{segment_duration:.3f},\n{filename}\n")
+        current_sequence = self.sequence
+        self._segments.append(HlsSegment(current_sequence, filename, segment_duration))
         self.sequence += 1
+        self._trim_window()
+        self._write_playlist(endlist=False)
         self._last_output_update_at = datetime.now(timezone.utc)
+        return PlaybackReceipt(
+            output_path=self._relative_output_path(output_path),
+            duration_seconds=segment_duration,
+            started_at=started_at,
+            appended_at=self._last_output_update_at,
+            sequence_number=current_sequence,
+        )
 
     async def _probe_duration(self, source_path: Path) -> float:
         args = [
-            settings.FFPROBE_BIN,
+            "ffprobe",
             "-v",
             "error",
             "-show_entries",
@@ -154,21 +171,61 @@ class LocalPreviewSink(PlayoutOutputSink):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-        except FileNotFoundError:
-            return float(settings.PLAYOUT_HLS_TIME_SECONDS)
+        except FileNotFoundError as exc:
+            raise DynamicPlayoutError("playout_ffprobe_failed", "ffprobe binary is not available") from exc
         stdout, _stderr = await proc.communicate()
         if proc.returncode != 0:
-            return float(settings.PLAYOUT_HLS_TIME_SECONDS)
+            raise DynamicPlayoutError("playout_ffprobe_failed", "ffprobe failed to read talking segment duration")
         try:
-            return max(0.1, float(stdout.decode().strip()))
-        except ValueError:
-            return float(settings.PLAYOUT_HLS_TIME_SECONDS)
+            duration = max(0.1, float(stdout.decode().strip()))
+        except ValueError as exc:
+            raise DynamicPlayoutError("playout_segment_invalid", "talking segment duration is invalid") from exc
+        return duration
+
+    def _trim_window(self) -> None:
+        if not self.output_dir:
+            return
+        max_segments = max(1, settings.PLAYOUT_HLS_LIST_SIZE)
+        removed: list[HlsSegment] = []
+        if len(self._segments) > max_segments:
+            removed = self._segments[: len(self._segments) - max_segments]
+            self._segments = self._segments[-max_segments:]
+        for segment in removed:
+            (self.output_dir / segment.filename).unlink(missing_ok=True)
+
+    def _write_playlist(self, *, endlist: bool) -> None:
+        if not self.output_dir or not self.playlist_path:
+            return
+        media_sequence = self._segments[0].sequence if self._segments else self.sequence
+        target_duration = max(
+            max(1, settings.PLAYOUT_HLS_TIME_SECONDS),
+            int(max((segment.duration_seconds for segment in self._segments), default=settings.PLAYOUT_HLS_TIME_SECONDS) + 0.999),
+        )
+        lines = [
+            "#EXTM3U",
+            "#EXT-X-VERSION:3",
+            f"#EXT-X-TARGETDURATION:{target_duration}",
+            f"#EXT-X-MEDIA-SEQUENCE:{media_sequence}",
+        ]
+        for segment in self._segments:
+            lines.append(f"#EXTINF:{segment.duration_seconds:.3f},")
+            lines.append(segment.filename)
+        if endlist:
+            lines.append("#EXT-X-ENDLIST")
+        content = "\n".join(lines) + "\n"
+        tmp_path = self.output_dir / f".{self.playlist_path.name}.tmp"
+        tmp_path.write_text(content, encoding="utf-8")
+        tmp_path.replace(self.playlist_path)
 
     def _hls_root(self) -> Path:
+        media_root = Path(settings.MEDIA_OUTPUT_DIR).resolve()
         configured = Path(settings.PLAYOUT_HLS_DIRECTORY)
-        if configured.is_absolute():
-            return configured
-        return Path(settings.MEDIA_OUTPUT_DIR) / configured
+        if ".." in configured.parts:
+            raise DynamicPlayoutError("playout_segment_invalid", "HLS directory must not contain traversal")
+        root = configured.resolve() if configured.is_absolute() else (media_root / configured).resolve()
+        if root != media_root and media_root not in root.parents:
+            raise DynamicPlayoutError("playout_segment_invalid", "HLS directory must stay under media output root")
+        return root
 
     def _relative_output_path(self, path: Path) -> str:
         try:

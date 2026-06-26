@@ -201,7 +201,6 @@ class MuseTalkClient:
             import shlex
             return shlex.split(rendered)
 
-        width, height = _parse_resolution(options.resolution)
         cmd = [
             self.python_bin,
             str(self.musetalk_home / "inference.py"),
@@ -210,7 +209,7 @@ class MuseTalkClient:
             "--driven_audio", str(audio_path),
             "--result_dir", str(output_path.parent),
             "--fps", str(options.fps),
-            "--crop_size", str(min(width, height)),
+            "--crop_size", "256",
         ]
         cmd += options.extra_args
         return cmd
@@ -305,13 +304,6 @@ class MuseTalkClient:
 def _source_type(path: Path) -> str:
     return "idle_video" if path.suffix.lower() == ".mp4" else "source_image"
 
-
-def _parse_resolution(resolution: str) -> tuple[int, int]:
-    try:
-        w, h = resolution.lower().split("x")
-        return int(w), int(h)
-    except (ValueError, AttributeError):
-        return 1080, 1920
 
 
 def _ffprobe_duration(path: Path, ffprobe_bin: str = "ffprobe") -> float | None:

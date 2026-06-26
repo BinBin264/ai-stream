@@ -10,7 +10,7 @@ Install for local POC:
     pip install edge-tts        # preferred
     pip install gtts            # fallback
 
-API-key-based providers (ElevenLabs etc.) are handled in elevenlabs.py.
+For higher quality, use the viXTTS provider (TTS_PROVIDER=vixtts).
 """
 from __future__ import annotations
 

@@ -62,7 +62,7 @@ class TalkingHeadRenderer:
     ) -> None:
         self.registry = registry or AvatarRegistry()
         self.musetalk = musetalk_client or MuseTalkClient()
-        self.ffmpeg_bin = ffmpeg_bin or os.environ.get("FFMPEG_BIN", "ffmpeg")
+        self.ffmpeg_bin = ffmpeg_bin or "ffmpeg"
         backend_root = Path(__file__).resolve().parents[3]
         self.audio_dir = audio_dir or (backend_root / "media" / "audio")
 

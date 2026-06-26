@@ -104,7 +104,7 @@ async def start_playout_session(session_id: str) -> PlayoutStatusResponse:
         session = await playout_session_service.get(session_id)
         if session["status"] in {"idle", "playing_talking", "starting"}:
             raise DynamicPlayoutError("playout_session_already_running", "playout session is already running", status_code=409)
-        playout_session_service.idle_path_for(session["avatar_id"])
+        playout_session_service.preflight_idle_asset(session["avatar_id"])
         row = await playout_session_service.transition(session_id, "starting")
         await playout_segment_queue.publish_control(session_id=session_id, action="start")
     except DynamicPlayoutError as exc:

@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api import (
     avatar_renders,
@@ -19,6 +22,7 @@ from app.api import (
     playout_programs,
     products,
 )
+from app.core.config import settings
 from app.services.realtime import realtime_hub
 
 app = FastAPI(title="DTP AI Stream API", version="0.1.0")
@@ -47,6 +51,14 @@ app.include_router(orders.router)
 app.include_router(conversations.router)
 app.include_router(ops.router)
 app.include_router(playout_programs.router)
+
+if settings.SERVE_LOCAL_MEDIA:
+    media_root = Path(settings.MEDIA_OUTPUT_DIR).resolve()
+    try:
+        media_root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    app.mount("/media", StaticFiles(directory=str(media_root), check_dir=False), name="local-media")
 
 
 @app.websocket("/ws/live/{live_id}")

@@ -1,7 +1,12 @@
-import httpx
+from __future__ import annotations
+
+import logging
 
 from app.core.config import settings
 from app.models.domain import LiveComment, ResponseJob
+from app.services.ai.gemini_client import gemini_client
+
+logger = logging.getLogger(__name__)
 
 
 class AiOrchestrator:
@@ -12,13 +17,18 @@ class AiOrchestrator:
         return ResponseJob(live_id=comment.live_id, comment_id=comment.id, prompt=prompt)
 
     async def answer_text(self, comment: LiveComment) -> str:
-        # TODO: call ai-avatar-system or local LLM service.
-        return f"{comment.user_name}, mình đã nhận câu hỏi của bạn: {comment.text}"
+        if settings.GEMINI_ENABLED and settings.GEMINI_API_KEY:
+            try:
+                prompt = f'Khách hàng {comment.user_name} bình luận: "{comment.text}"'
+                return await gemini_client.generate(prompt)
+            except Exception:
+                logger.warning("Gemini answer_text failed, using fallback")
+        return f"{comment.user_name}, mình đã nhận câu hỏi. Tư vấn viên sẽ hỗ trợ ngay ạ."
 
     async def request_avatar_segment(self, text: str) -> str | None:
-        # TODO: replace with a dedicated ai-avatar-system REST endpoint.
         if not settings.AI_AVATAR_BASE_URL:
             return None
+        import httpx
         async with httpx.AsyncClient(timeout=120) as client:
             await client.get(f"{settings.AI_AVATAR_BASE_URL.rstrip('/')}/health")
         return None

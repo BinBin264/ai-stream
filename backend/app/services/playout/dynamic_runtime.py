@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 from app.core.config import settings
@@ -16,13 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 class DynamicPlayoutRuntime:
-    def __init__(self, session_id: str) -> None:
+    def __init__(self, session_id: str, *, owner_id: str | None = None) -> None:
         self.session_id = session_id
-        self._force_stop = False
+        self.owner_id = owner_id
+        self._stop_event = asyncio.Event()
+        self._force_stop_event = asyncio.Event()
         self._sink = None
 
+    def request_stop(self) -> None:
+        self._stop_event.set()
+
     def request_force_stop(self) -> None:
-        self._force_stop = True
+        self._stop_event.set()
+        self._force_stop_event.set()
 
     async def run(self) -> None:
         if not settings.PLAYOUT_RUNTIME_ENABLED:
@@ -49,7 +56,7 @@ class DynamicPlayoutRuntime:
 
             while True:
                 session = await playout_session_service.get(self.session_id)
-                if self._force_stop or session["status"] == "stopping":
+                if self._force_stop_event.is_set() or session["status"] == "stopping":
                     break
                 if session["status"] == "failed":
                     return
@@ -61,7 +68,7 @@ class DynamicPlayoutRuntime:
 
                 await self._play_segment(segment)
                 session = await playout_session_service.get(self.session_id)
-                if session["status"] == "stopping" or self._force_stop:
+                if session["status"] == "stopping" or self._stop_event.is_set():
                     break
                 await playout_session_service.transition(self.session_id, "idle")
                 await playout_segment_queue.publish_event(
@@ -94,15 +101,21 @@ class DynamicPlayoutRuntime:
                     "error_code": self._error_code(exc),
                 }
             )
+        finally:
+            if self.owner_id:
+                await playout_session_service.release_lease(self.session_id, self.owner_id)
 
     async def _append_idle_chunk(self, idle_path: Path) -> None:
         assert self._sink is not None
-        await self._sink.append_idle(
+        receipt = await self._sink.append_idle(
             source_path=idle_path,
             duration_seconds=max(1, settings.PLAYOUT_HLS_TIME_SECONDS),
         )
-        await playout_session_service.touch_heartbeat(self.session_id)
-        await asyncio.sleep(0)
+        await self._wait_for_playback(receipt.duration_seconds, interrupt_on_graceful_stop=True)
+        await playout_session_service.touch_heartbeat(
+            self.session_id,
+            output_updated_at=receipt.appended_at,
+        )
 
     async def _play_segment(self, segment: dict) -> None:
         assert self._sink is not None
@@ -121,9 +134,21 @@ class DynamicPlayoutRuntime:
                     "segment_id": segment_id,
                 }
             )
-            source = Path(settings.MEDIA_OUTPUT_DIR) / str(segment["source_video_path"])
-            await self._sink.append_talking(source_path=source)
+            source = safe_join(Path(settings.MEDIA_OUTPUT_DIR), str(segment["source_video_path"]), field="source_video_path")
+            receipt = await self._sink.append_talking(source_path=source)
+            completed = await self._wait_for_playback(receipt.duration_seconds, interrupt_on_graceful_stop=False)
+            if not completed:
+                await playout_segment_service.mark_failed(
+                    segment_id,
+                    "playout_runtime_crashed",
+                    "playback interrupted by force stop",
+                )
+                return
             await playout_segment_service.mark_completed(segment_id)
+            await playout_session_service.touch_heartbeat(
+                self.session_id,
+                output_updated_at=receipt.appended_at,
+            )
             await playout_segment_queue.publish_event(
                 {
                     "event_type": "playout.segment.completed",
@@ -147,6 +172,29 @@ class DynamicPlayoutRuntime:
 
     def last_output_update_at(self):
         return self._sink.last_output_update_at() if self._sink else None
+
+    async def _wait_for_playback(self, duration_seconds: float, *, interrupt_on_graceful_stop: bool) -> bool:
+        duration = max(0.0, duration_seconds)
+        deadline = time.monotonic() + duration
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return True
+            if self._force_stop_event.is_set():
+                return False
+            wait_task = asyncio.create_task(self._force_stop_event.wait())
+            stop_task = None
+            tasks = {wait_task}
+            if interrupt_on_graceful_stop:
+                stop_task = asyncio.create_task(self._stop_event.wait())
+                tasks.add(stop_task)
+            done, pending = await asyncio.wait(tasks, timeout=min(remaining, 0.5), return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            if stop_task and stop_task in done and self._stop_event.is_set():
+                return True
+            if wait_task in done and self._force_stop_event.is_set():
+                return False
 
     def _error_code(self, exc: Exception) -> str:
         if isinstance(exc, DynamicPlayoutError):

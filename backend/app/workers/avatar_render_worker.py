@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 def _build_runtime():
     provider = settings.AVATAR_RENDER_PROVIDER
+    if provider == "modal":
+        from app.services.avatar.runtime.modal_runtime import ModalAvatarRuntime  # noqa: PLC0415
+        return ModalAvatarRuntime()
     if provider == "local":
         from app.services.avatar.runtime.local_runtime import LocalMuseTalkRuntime  # noqa: PLC0415
         return LocalMuseTalkRuntime()

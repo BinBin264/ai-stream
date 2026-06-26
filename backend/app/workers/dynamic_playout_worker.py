@@ -7,6 +7,7 @@ import socket
 from app.core.config import settings
 from app.services.playout.dynamic_runtime import DynamicPlayoutRuntime
 from app.services.playout.playout_segment_queue import playout_segment_queue
+from app.services.playout.playout_segment_service import playout_segment_service
 from app.services.playout.playout_session_service import playout_session_service
 from app.services.queue.redis_streams import redis_streams
 
@@ -22,7 +23,15 @@ class DynamicPlayoutWorker:
     async def run_forever(self) -> None:
         await redis_streams.ensure_group(settings.PLAYOUT_SESSION_CONTROL_STREAM, settings.PLAYOUT_RUNTIME_CONSUMER_GROUP)
         await redis_streams.ensure_group(settings.PLAYOUT_SEGMENT_READY_STREAM, settings.PLAYOUT_RUNTIME_CONSUMER_GROUP)
-        logger.info("DynamicPlayoutWorker started", extra={"consumer": self.consumer_name})
+        logger.info(
+            "DynamicPlayoutWorker started",
+            extra={
+                "consumer": self.consumer_name,
+                "control_stream": settings.PLAYOUT_SESSION_CONTROL_STREAM,
+                "ready_stream": settings.PLAYOUT_SEGMENT_READY_STREAM,
+            },
+        )
+        await self._recover_sessions()
         while True:
             await self._consume_control_once()
             await self._consume_ready_once()
@@ -72,7 +81,11 @@ class DynamicPlayoutWorker:
         existing = self._tasks.get(session_id)
         if existing and not existing.done():
             return
-        runtime = DynamicPlayoutRuntime(session_id)
+        acquired = await playout_session_service.acquire_lease(session_id, self.consumer_name)
+        if not acquired:
+            logger.info("Skipped playout session start because lease is held", extra={"session_id": session_id})
+            return
+        runtime = DynamicPlayoutRuntime(session_id, owner_id=self.consumer_name)
         task = asyncio.create_task(runtime.run())
         self._runtimes[session_id] = runtime
         self._tasks[session_id] = task
@@ -82,8 +95,11 @@ class DynamicPlayoutWorker:
 
     async def _stop_session(self, session_id: str, *, force: bool) -> None:
         runtime = self._runtimes.get(session_id)
-        if runtime and force:
-            runtime.request_force_stop()
+        if runtime:
+            if force:
+                runtime.request_force_stop()
+            else:
+                runtime.request_stop()
         await playout_session_service.request_stop(session_id, force=force)
         await playout_segment_queue.publish_event(
             {"event_type": "playout.session.stopping", "session_id": session_id, "force": force}
@@ -97,6 +113,22 @@ class DynamicPlayoutWorker:
             if task.exception():
                 logger.error("Dynamic playout task failed", extra={"session_id": session_id, "error": str(task.exception())})
 
+    async def _recover_sessions(self) -> None:
+        sessions = await playout_session_service.recoverable_sessions()
+        for session in sessions:
+            session_id = str(session["id"])
+            await playout_segment_service.fail_playing_for_session(
+                session_id,
+                "playout_runtime_crashed",
+                "dynamic playout worker restarted while segment was playing",
+            )
+            recovered = await playout_session_service.prepare_recovery(session_id)
+            if recovered["status"] == "starting":
+                logger.info("Recovering active playout session", extra={"session_id": session_id})
+                await self._start_session(session_id)
+            else:
+                logger.info("Stopped previously stopping playout session during recovery", extra={"session_id": session_id})
+
 
 async def main() -> None:
     logging.basicConfig(level=settings.LOG_LEVEL.upper())
@@ -105,4 +137,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

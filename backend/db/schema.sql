@@ -329,25 +329,6 @@ ALTER TABLE media_render_jobs ADD COLUMN IF NOT EXISTS motion_code TEXT;
 ALTER TABLE media_render_jobs ADD COLUMN IF NOT EXISTS overlay_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE media_render_jobs ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
 
-CREATE TABLE IF NOT EXISTS playout_queue_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    live_session_id UUID NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
-    source_type TEXT NOT NULL,
-    source_id UUID,
-    speech_text TEXT,
-    audio_url TEXT,
-    video_url TEXT,
-    motion_code TEXT,
-    overlay_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-    priority INTEGER NOT NULL DEFAULT 40,
-    status TEXT NOT NULL DEFAULT 'queued',
-    resume_cursor UUID,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    error_message TEXT
-);
 
 CREATE INDEX IF NOT EXISTS idx_products_tenant_source ON products(tenant_id, source);
 CREATE INDEX IF NOT EXISTS idx_products_external_product_id ON products(external_product_id);
@@ -360,7 +341,6 @@ CREATE INDEX IF NOT EXISTS idx_live_comments_status ON live_comments(processing_
 CREATE INDEX IF NOT EXISTS idx_speech_queue_status ON speech_queue_items(status);
 CREATE INDEX IF NOT EXISTS idx_media_render_jobs_status ON media_render_jobs(status, priority);
 CREATE INDEX IF NOT EXISTS idx_render_profiles_tenant_status ON render_profiles(tenant_id, status);
-CREATE INDEX IF NOT EXISTS idx_playout_queue_status ON playout_queue_items(live_session_id, status, priority DESC);
 
 INSERT INTO tenants (id, name, status)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Demo Store', 'active')
@@ -558,6 +538,10 @@ CREATE TABLE IF NOT EXISTS playout_sessions (
     started_at TIMESTAMPTZ,
     stopped_at TIMESTAMPTZ,
     last_heartbeat_at TIMESTAMPTZ,
+    last_output_update_at TIMESTAMPTZ,
+    runtime_owner_id TEXT,
+    lease_expires_at TIMESTAMPTZ,
+    restart_count INTEGER NOT NULL DEFAULT 0,
     error_code TEXT,
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -569,6 +553,11 @@ CREATE TABLE IF NOT EXISTS playout_sessions (
         output_mode IN ('local_preview', 'file_output')
     )
 );
+
+ALTER TABLE playout_sessions ADD COLUMN IF NOT EXISTS last_output_update_at TIMESTAMPTZ;
+ALTER TABLE playout_sessions ADD COLUMN IF NOT EXISTS runtime_owner_id TEXT;
+ALTER TABLE playout_sessions ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
+ALTER TABLE playout_sessions ADD COLUMN IF NOT EXISTS restart_count INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS playout_segments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -613,6 +602,7 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_playout_sessions_tenant_status ON playout_sessions(tenant_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_playout_sessions_live_session ON playout_sessions(live_session_id) WHERE live_session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_playout_sessions_recovery ON playout_sessions(status, lease_expires_at, restart_count);
 CREATE INDEX IF NOT EXISTS idx_playout_segments_session_status ON playout_segments(playout_session_id, status);
 CREATE INDEX IF NOT EXISTS idx_playout_segments_queue ON playout_segments(
     playout_session_id,

@@ -40,6 +40,7 @@ services:
     volumes:
       - ./backend:/app
       - media_data:/app/media
+      - models_data:/app/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,6 +90,7 @@ services:
     volumes:
       - ./backend:/app
       - media_data:/app/media
+      - models_data:/app/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -106,6 +108,7 @@ services:
     volumes:
       - ./backend:/app
       - media_data:/app/media
+      - models_data:/app/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,10 +117,10 @@ services:
     command: python -m app.workers.avatar_render_worker
     restart: unless-stopped
 
-  playout-worker:
+  dynamic-playout-worker:
     build:
       context: ./backend
-    container_name: dtp-stream-playout-worker
+    container_name: dtp-stream-dynamic-playout-worker
     env_file:
       - .env
     volumes:
@@ -128,10 +131,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: python -m app.workers.playout_worker
+    command: python -m app.workers.dynamic_playout_worker
     restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
   media_data:
+  models_data:

@@ -98,5 +98,5 @@ class PlayoutHealthResponse(BaseModel):
     queued_segments: int = 0
     last_heartbeat_at: datetime | None = None
     last_output_update_at: datetime | None = None
+    output_path: str | None = None
     last_error_code: str | None = None
-

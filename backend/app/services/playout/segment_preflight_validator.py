@@ -10,7 +10,7 @@ from app.services.playout.paths import ensure_relative_safe, safe_join
 
 class SegmentPreflightValidator:
     def __init__(self, ffprobe: FFprobeService | None = None) -> None:
-        self.ffprobe = ffprobe or FFprobeService(settings.FFPROBE_BIN)
+        self.ffprobe = ffprobe or FFprobeService("ffprobe")
 
     def media_root(self) -> Path:
         return Path(settings.MEDIA_OUTPUT_DIR)

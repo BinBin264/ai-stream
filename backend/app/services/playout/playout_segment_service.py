@@ -249,6 +249,25 @@ class PlayoutSegmentService:
             raise DynamicPlayoutError("playout_segment_not_found", "segment not found", status_code=404)
         return dict(row)
 
+    async def fail_playing_for_session(self, session_id: str, error_code: str, error_message: str) -> list[dict]:
+        async with db_connection() as conn:
+            rows = await conn.fetch(
+                """
+                UPDATE playout_segments
+                SET status = 'failed',
+                    error_code = $2,
+                    error_message = $3,
+                    updated_at = now()
+                WHERE playout_session_id = $1
+                  AND status = 'playing'
+                RETURNING *
+                """,
+                self._uuid(session_id),
+                error_code,
+                error_message[:500],
+            )
+        return [dict(row) for row in rows]
+
     async def cancel(self, session_id: str, segment_id: str) -> dict:
         async with db_connection() as conn:
             row = await conn.fetchrow(
