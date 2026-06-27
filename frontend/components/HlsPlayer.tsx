@@ -14,8 +14,17 @@ export function HlsPlayer({ src }: Props) {
   const [status, setStatus] = useState<'connecting' | 'playing' | 'error'>('connecting')
   const [errorMsg, setErrorMsg] = useState('')
   const [retryCount, setRetryCount] = useState(0)
+  const [muted, setMuted] = useState(true)
+  const [volume, setVolume] = useState(80)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const retryRef = useRef(0)
+
+  // Sync volume to video element whenever it changes
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.volume = volume / 100
+  }, [volume])
 
   useEffect(() => {
     const video = videoRef.current
@@ -65,6 +74,7 @@ export function HlsPlayer({ src }: Props) {
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (destroyed) return
           setStatus('playing')
+          video!.volume = volume / 100
           video!.play().catch(() => {})
         })
 
@@ -72,7 +82,6 @@ export function HlsPlayer({ src }: Props) {
           if (destroyed) return
           if (data.fatal) {
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-              // try to recover media errors before giving up
               hls?.recoverMediaError()
             } else {
               hls?.destroy()
@@ -100,7 +109,6 @@ export function HlsPlayer({ src }: Props) {
       if (video.currentTime === lastTime) {
         stalledFor += 1
         if (stalledFor >= 2) {
-          // stuck for 4+ seconds — jump to live edge
           hls.stopLoad()
           hls.startLoad(-1)
           video.play().catch(() => {})
@@ -119,14 +127,27 @@ export function HlsPlayer({ src }: Props) {
       hls?.destroy()
       if (video) video.src = ''
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src])
+
+  function toggleMute() {
+    if (muted) {
+      // Unmuting: ensure volume is audible
+      if (volume === 0) setVolume(80)
+      setMuted(false)
+    } else {
+      setMuted(true)
+    }
+  }
+
+  const volumeIcon = muted || volume === 0 ? '🔇' : volume < 50 ? '🔉' : '🔊'
 
   return (
     <div className="relative overflow-hidden rounded-md bg-black" style={{ aspectRatio: '9/16' }}>
       <video
         ref={videoRef}
         autoPlay
-        muted
+        muted={muted}
         playsInline
         className="h-full w-full object-cover"
       />
@@ -148,9 +169,38 @@ export function HlsPlayer({ src }: Props) {
       )}
 
       {status === 'playing' && (
-        <div className="absolute bottom-2 right-2 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-          LIVE
-        </div>
+        <>
+          <div className="absolute bottom-2 right-2 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            LIVE
+          </div>
+
+          {/* Volume controls */}
+          <div className="absolute bottom-2 left-2 flex items-center gap-1.5 rounded bg-black/60 px-2 py-1">
+            <button
+              onClick={toggleMute}
+              className="text-sm leading-none text-white"
+              title={muted ? 'Bật tiếng' : 'Tắt tiếng'}
+            >
+              {volumeIcon}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={muted ? 0 : volume}
+              onChange={e => {
+                const v = Number(e.target.value)
+                setVolume(v)
+                if (v > 0 && muted) setMuted(false)
+                if (v === 0) setMuted(true)
+              }}
+              className="h-1 w-20 cursor-pointer accent-white"
+            />
+            <span className="w-6 text-right text-[10px] text-white/80">
+              {muted ? 0 : volume}%
+            </span>
+          </div>
+        </>
       )}
     </div>
   )

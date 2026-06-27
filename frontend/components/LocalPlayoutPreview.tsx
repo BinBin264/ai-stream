@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Play, Square, Send, Film, RefreshCcw, AlertCircle } from 'lucide-react'
+import { Play, Square, Send, RefreshCcw, AlertCircle } from 'lucide-react'
 import { api, type PlayoutHealth, type PlayoutSession } from '@/lib/api'
 import { HlsPlayer } from './HlsPlayer'
 
@@ -27,7 +27,6 @@ export function LocalPlayoutPreview({ liveSessionId, avatarId = 'model_01' }: Pr
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [scriptText, setScriptText] = useState('')
-  const [segmentPath, setSegmentPath] = useState('')
   const [log, setLog] = useState<string[]>([])
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -127,20 +126,6 @@ export function LocalPlayoutPreview({ liveSessionId, avatarId = 'model_01' }: Pr
     }
   }
 
-  async function enqueueSegment() {
-    if (!session || !segmentPath.trim()) return
-    setBusy(true)
-    clearError()
-    try {
-      const result = await api.enqueuePlayoutSegment(session.session_id, segmentPath.trim())
-      pushLog(`Segment queued: ${result.segment_id.slice(0, 8)}`)
-      setSegmentPath('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to enqueue segment')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const status = health?.status ?? session?.status ?? 'stopped'
   const isRunning = ['starting', 'idle', 'playing_talking'].includes(status)
@@ -239,27 +224,6 @@ export function LocalPlayoutPreview({ liveSessionId, avatarId = 'model_01' }: Pr
         </div>
       )}
 
-      {/* Segment enqueue */}
-      {session && (
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold text-slate-600">Enqueue MP4 Segment</label>
-          <div className="flex gap-2">
-            <input
-              value={segmentPath}
-              onChange={(e) => setSegmentPath(e.target.value)}
-              placeholder="relative/path/to/segment.mp4"
-              className="flex-1 rounded-md border border-line px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ink"
-            />
-            <button
-              disabled={busy || !segmentPath.trim() || !isRunning}
-              onClick={enqueueSegment}
-              className="flex items-center gap-1 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
-            >
-              <Film size={12} /> Queue
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Event log */}
       {log.length > 0 && (

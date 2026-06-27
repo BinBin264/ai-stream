@@ -42,7 +42,7 @@ class ModalAvatarRuntime:
         mime = "video/mp4" if source_path.suffix == ".mp4" else "image/png"
 
         t0 = time.perf_counter()
-        async with httpx.AsyncClient(timeout=600) as client:
+        async with httpx.AsyncClient(timeout=600, follow_redirects=True) as client:
             resp = await client.post(
                 settings.MODAL_AVATAR_URL,
                 files={
@@ -51,6 +51,8 @@ class ModalAvatarRuntime:
                 },
                 headers=headers,
             )
+            if not resp.is_success:
+                logger.error("Modal avatar render HTTP %s: %s", resp.status_code, resp.text[:1000])
             resp.raise_for_status()
         render_duration = time.perf_counter() - t0
 

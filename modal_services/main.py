@@ -80,7 +80,13 @@ musetalk_image = (
         extra_index_url="https://download.pytorch.org/whl/cu118",
     )
     .run_commands("pip install -r /opt/musetalk/requirements.txt")
-    .pip_install(["fastapi[standard]", "python-multipart", "huggingface_hub>=0.23.0"])
+    .pip_install(["openmim", "fastapi[standard]", "python-multipart", "huggingface_hub>=0.23.0", "pyyaml", "gdown"])
+    .run_commands(
+        "mim install mmengine",
+        'mim install "mmcv>=2.0.1"',
+        'mim install "mmdet>=3.1.0"',
+        'mim install "mmpose>=1.1.0"',
+    )
 )
 
 
@@ -169,6 +175,87 @@ class TTSService:
 
 # ─── Avatar Service (MuseTalk, A10G GPU) ──────────────────────────────────────
 
+MUSETALK_HOME = "/opt/musetalk"
+MUSETALK_WEIGHTS_DIR = "/models/musetalk-weights"
+MUSETALK_WEIGHTS_MARKER = ".downloaded_v4"
+
+
+@app.function(
+    image=musetalk_image,
+    volumes={"/models": model_vol},
+    timeout=3600,
+)
+def download_musetalk_weights():
+    """One-time weight download. Run with: modal run modal_services/main.py::download_musetalk_weights"""
+    import subprocess as sp
+    from huggingface_hub import hf_hub_download, snapshot_download
+
+    weights_dir = Path(MUSETALK_WEIGHTS_DIR)
+    weights_dir.mkdir(parents=True, exist_ok=True)
+    marker = weights_dir / MUSETALK_WEIGHTS_MARKER
+
+    if marker.exists():
+        print("[MuseTalk] Weights already downloaded — nothing to do.")
+        return
+
+    print("[MuseTalk] Downloading all required weights …")
+
+    # 1. MuseTalk model (v1 + v15)
+    snapshot_download(
+        "TMElyralab/MuseTalk",
+        local_dir=str(weights_dir),
+        ignore_patterns=["*.git*", "*.md"],
+    )
+
+    # 2. SD-VAE (stabilityai/sd-vae-ft-mse → weights_dir/sd-vae/)
+    vae_dir = weights_dir / "sd-vae"
+    vae_dir.mkdir(exist_ok=True)
+    for fname in ["config.json", "diffusion_pytorch_model.bin"]:
+        if not (vae_dir / fname).exists():
+            hf_hub_download("stabilityai/sd-vae-ft-mse", fname, local_dir=str(vae_dir))
+
+    # 3. Whisper tiny (openai/whisper-tiny → weights_dir/whisper/)
+    whisper_dir = weights_dir / "whisper"
+    whisper_dir.mkdir(exist_ok=True)
+    for fname in ["config.json", "pytorch_model.bin", "preprocessor_config.json"]:
+        if not (whisper_dir / fname).exists():
+            hf_hub_download("openai/whisper-tiny", fname, local_dir=str(whisper_dir))
+
+    # 4. DWPose (yzd-v/DWPose → weights_dir/dwpose/)
+    dwpose_dir = weights_dir / "dwpose"
+    dwpose_dir.mkdir(exist_ok=True)
+    if not (dwpose_dir / "dw-ll_ucoco_384.pth").exists():
+        hf_hub_download("yzd-v/DWPose", "dw-ll_ucoco_384.pth", local_dir=str(dwpose_dir))
+
+    # 5. SyncNet (ByteDance/LatentSync → weights_dir/syncnet/)
+    syncnet_dir = weights_dir / "syncnet"
+    syncnet_dir.mkdir(exist_ok=True)
+    if not (syncnet_dir / "latentsync_syncnet.pt").exists():
+        hf_hub_download("ByteDance/LatentSync", "latentsync_syncnet.pt", local_dir=str(syncnet_dir))
+
+    # 6. Face-parse-bisent
+    import urllib.request
+    fp_dir = weights_dir / "face-parse-bisent"
+    fp_dir.mkdir(exist_ok=True)
+    if not (fp_dir / "resnet18-5c106cde.pth").exists():
+        print("[MuseTalk] Downloading resnet18 …")
+        urllib.request.urlretrieve(
+            "https://download.pytorch.org/models/resnet18-5c106cde.pth",
+            str(fp_dir / "resnet18-5c106cde.pth"),
+        )
+    if not (fp_dir / "79999_iter.pth").exists():
+        print("[MuseTalk] Downloading 79999_iter.pth via gdown …")
+        sp.run(
+            ["gdown", "154JgKpzCPW82qINcVieuPH3fZ2e0P812",
+             "-O", str(fp_dir / "79999_iter.pth")],
+            check=True,
+        )
+
+    marker.touch()
+    model_vol.commit()
+    print("[MuseTalk] All weights downloaded and committed to volume.")
+
+
 @app.cls(
     image=musetalk_image,
     gpu="A10G",
@@ -176,26 +263,19 @@ class TTSService:
     scaledown_window=300,
 )
 class AvatarService:
-    MUSETALK_HOME = "/opt/musetalk"
-    WEIGHTS_DIR = "/models/musetalk-weights"
+    MUSETALK_HOME = MUSETALK_HOME
+    WEIGHTS_DIR = MUSETALK_WEIGHTS_DIR
 
     @modal.enter()
-    def download_weights(self) -> None:
-        from huggingface_hub import snapshot_download
-
+    def setup(self) -> None:
+        """Lightweight startup: just verify weights exist and set up symlink."""
         weights_dir = Path(self.WEIGHTS_DIR)
-        marker = weights_dir / ".downloaded"
+        marker = weights_dir / MUSETALK_WEIGHTS_MARKER
         if not marker.exists():
-            print("[MuseTalk] Downloading weights from TMElyralab/MuseTalk ...")
-            snapshot_download(
-                "TMElyralab/MuseTalk",
-                local_dir=str(weights_dir),
-                ignore_patterns=["*.git*", "*.md"],
+            raise RuntimeError(
+                "MuseTalk weights not found on volume. "
+                "Run: modal run modal_services/main.py::download_musetalk_weights"
             )
-            marker.touch()
-            model_vol.commit()
-
-        # MuseTalk expects models/ relative to its own directory
         musetalk_models = Path(self.MUSETALK_HOME) / "models"
         if not musetalk_models.exists():
             musetalk_models.symlink_to(weights_dir)
@@ -205,6 +285,7 @@ class AvatarService:
     async def render(self, request: Request) -> Response:
         import subprocess
         import tempfile
+        import yaml
 
         _check_token(request)
 
@@ -216,6 +297,8 @@ class AvatarService:
 
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
+            result_dir = tmpdir / "results"
+            result_dir.mkdir()
 
             audio_path = tmpdir / "input.wav"
             audio_path.write_bytes(await audio_file.read())
@@ -225,31 +308,52 @@ class AvatarService:
             source_path = tmpdir / f"source{ext}"
             source_path.write_bytes(await source_file.read())
 
-            src_arg = "--source_video" if ext == ".mp4" else "--source_image"
+            # MuseTalk v15 uses a YAML inference config
+            config = {
+                "task_0": {
+                    "video_path": str(source_path),
+                    "audio_path": str(audio_path),
+                }
+            }
+            config_path = tmpdir / "inference.yaml"
+            config_path.write_text(yaml.dump(config))
+
+            weights_dir = Path(self.WEIGHTS_DIR)
+            # HF repo stores config as musetalk.json; inference.py defaults to config.json
+            unet_config = weights_dir / "musetalk" / "musetalk.json"
+            unet_model = weights_dir / "musetalkV15" / "unet.pth"
+
+            inference_script = Path(self.MUSETALK_HOME) / "scripts" / "inference.py"
             cmd = [
-                "python", f"{self.MUSETALK_HOME}/inference.py",
-                src_arg, str(source_path),
-                "--driven_audio", str(audio_path),
-                "--result_dir", str(tmpdir),
+                "python", str(inference_script),
+                "--inference_config", str(config_path),
+                "--unet_config", str(unet_config),
+                "--unet_model_path", str(unet_model),
+                "--result_dir", str(result_dir),
                 "--fps", "25",
-                "--crop_size", "256",
             ]
+            env = os.environ.copy()
+            env["PYTHONPATH"] = self.MUSETALK_HOME
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=300,
                 cwd=self.MUSETALK_HOME,
+                env=env,
             )
             if result.returncode != 0:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"MuseTalk failed (exit {result.returncode}): {result.stderr[-800:]}",
+                    detail=f"MuseTalk failed (exit {result.returncode}):\nSTDOUT:{result.stdout[-400:]}\nSTDERR:{result.stderr[-800:]}",
                 )
 
-            mp4s = list(tmpdir.glob("*.mp4"))
+            mp4s = list(result_dir.glob("**/*.mp4"))
             if not mp4s:
-                raise HTTPException(status_code=500, detail="MuseTalk produced no output MP4")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"MuseTalk produced no output MP4. stdout={result.stdout[-400:]}",
+                )
 
             return Response(content=mp4s[0].read_bytes(), media_type="video/mp4")
 
